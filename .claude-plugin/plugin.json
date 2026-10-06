@@ -1,0 +1,12 @@
+{
+  "name": "sododeck-diagram",
+  "description": "Architecture and flow diagrams your team can play: an AI skill that writes Sododeck decks (cards, connectors, step-by-step flows, decision rules), hand-laid and checked offline before you import them.",
+  "version": "1.0.0",
+  "author": {
+    "name": "Sododeck",
+    "url": "https://sododeck.com"
+  },
+  "homepage": "https://sododeck.com",
+  "repository": "https://github.com/FamManh/sododeck-diagram-skill",
+  "keywords": ["diagrams", "architecture", "flows", "sequence", "system-design", "codebase", "sododeck"]
+}

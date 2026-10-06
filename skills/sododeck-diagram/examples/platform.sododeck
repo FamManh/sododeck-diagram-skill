@@ -1,0 +1,192 @@
+{
+  "$schema": "https://sododeck.com/schema/v1.json",
+  "version": 1,
+  "name": "Delivery platform",
+  "description": "Top level: apps and the platform. Open the platform card to see its services.",
+  "nodes": [
+    {
+      "id": "customer-app",
+      "type": "client",
+      "title": "Customer App",
+      "level": "system",
+      "position": {
+        "x": 0,
+        "y": 0
+      }
+    },
+    {
+      "id": "courier-app",
+      "type": "client",
+      "title": "Courier App",
+      "level": "system",
+      "position": {
+        "x": 0,
+        "y": 200
+      }
+    },
+    {
+      "id": "platform",
+      "type": "service",
+      "title": "Delivery Platform",
+      "level": "system",
+      "description": "Everything that runs on our side. Open it for the services.",
+      "position": {
+        "x": 300,
+        "y": 100
+      }
+    },
+    {
+      "id": "maps",
+      "type": "external",
+      "title": "Maps API",
+      "level": "system",
+      "position": {
+        "x": 600,
+        "y": 100
+      }
+    },
+    {
+      "id": "api",
+      "type": "gateway",
+      "title": "Public API",
+      "group": "edge",
+      "parent": "platform",
+      "position": {
+        "x": 0,
+        "y": 100
+      }
+    },
+    {
+      "id": "dispatch",
+      "type": "service",
+      "title": "Dispatch",
+      "group": "core",
+      "parent": "platform",
+      "position": {
+        "x": 300,
+        "y": 0
+      }
+    },
+    {
+      "id": "tracking",
+      "type": "service",
+      "title": "Tracking",
+      "group": "core",
+      "parent": "platform",
+      "position": {
+        "x": 300,
+        "y": 250
+      }
+    },
+    {
+      "id": "deliveries-db",
+      "type": "database",
+      "title": "Deliveries DB",
+      "group": "data",
+      "parent": "platform",
+      "position": {
+        "x": 600,
+        "y": 250
+      }
+    }
+  ],
+  "groups": [
+    {
+      "id": "edge",
+      "title": "Edge"
+    },
+    {
+      "id": "core",
+      "title": "Core services"
+    },
+    {
+      "id": "data",
+      "title": "Data"
+    }
+  ],
+  "edges": [
+    {
+      "id": "customer-platform",
+      "from": "customer-app",
+      "to": "platform",
+      "protocol": "http",
+      "label": "orders, tracking"
+    },
+    {
+      "id": "courier-platform",
+      "from": "courier-app",
+      "to": "platform",
+      "protocol": "websocket",
+      "label": "location, jobs"
+    },
+    {
+      "id": "platform-maps",
+      "from": "platform",
+      "to": "maps",
+      "protocol": "http",
+      "label": "routes, ETAs"
+    },
+    {
+      "id": "api-dispatch",
+      "from": "api",
+      "to": "dispatch",
+      "protocol": "grpc",
+      "label": "new delivery"
+    },
+    {
+      "id": "dispatch-tracking",
+      "from": "dispatch",
+      "to": "tracking",
+      "protocol": "event",
+      "label": "JobAccepted · Kafka"
+    },
+    {
+      "id": "tracking-db",
+      "from": "tracking",
+      "to": "deliveries-db",
+      "protocol": "sql",
+      "label": "positions"
+    },
+    {
+      "id": "api-tracking",
+      "from": "api",
+      "to": "tracking",
+      "protocol": "grpc",
+      "label": "where is my order"
+    }
+  ],
+  "views": [],
+  "features": [
+    {
+      "id": "dispatch",
+      "title": "Dispatch"
+    }
+  ],
+  "flows": [
+    {
+      "id": "assign-courier",
+      "title": "Assign a courier",
+      "feature": "dispatch",
+      "steps": [
+        {
+          "id": "new-delivery",
+          "edge": "api-dispatch",
+          "title": "New delivery"
+        },
+        {
+          "id": "accept",
+          "edge": "dispatch-tracking",
+          "title": "Courier accepts the job",
+          "description": "Dispatch offers the job to couriers; the first `JobAccepted` on Kafka wins."
+        },
+        {
+          "id": "track",
+          "edge": "tracking-db",
+          "title": "Start tracking"
+        }
+      ]
+    }
+  ],
+  "rules": {},
+  "stickies": []
+}

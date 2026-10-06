@@ -1,0 +1,1265 @@
+{
+  "$schema": "https://sododeck.com/schema/v1.json",
+  "version": 1,
+  "name": "SaaS signup and subscription billing",
+  "description": "A fictional SaaS product: signup with a free trial, conversion to paid through a payment provider webhook round trip, renewals with dunning, and plan changes with proration. Billing is shown in detail.",
+  "packs": [
+    "architecture",
+    "process"
+  ],
+  "nodes": [
+    {
+      "id": "web",
+      "type": "client",
+      "title": "Web app",
+      "tech": "React SPA",
+      "description": "Signup form, plan picker and billing settings. Checkout opens the payment provider’s hosted card form.",
+      "position": {
+        "x": 0,
+        "y": 300
+      }
+    },
+    {
+      "id": "gateway",
+      "type": "gateway",
+      "title": "API gateway",
+      "tech": "Envoy",
+      "description": "Terminates TLS, verifies the session token, and enforces plan limits by reading the entitlement cache on every write request (`GET ent:{accountId}`, p99 < 2 ms).",
+      "group": "edge",
+      "position": {
+        "x": 300,
+        "y": 300
+      }
+    },
+    {
+      "id": "account-api",
+      "type": "service",
+      "title": "Account API",
+      "tech": "Go · gRPC + REST",
+      "description": "Owns accounts, members and invitations. Creates the login with the identity provider, then asks Billing to start a trial.",
+      "group": "account",
+      "position": {
+        "x": 300,
+        "y": 600
+      }
+    },
+    {
+      "id": "accounts-db",
+      "type": "database",
+      "title": "Accounts DB",
+      "tech": "PostgreSQL 16",
+      "description": "Tables `accounts`, `members`, `invitations`.",
+      "group": "account",
+      "position": {
+        "x": 300,
+        "y": 750
+      }
+    },
+    {
+      "id": "idp",
+      "type": "external",
+      "title": "Identity provider",
+      "tech": "OIDC",
+      "description": "Hosts logins and email verification. Returns a stable `sub` the account is keyed by.",
+      "position": {
+        "x": 0,
+        "y": 600
+      }
+    },
+    {
+      "id": "uc-convert",
+      "type": "component",
+      "title": "Convert to paid",
+      "tech": "Kotlin · Spring",
+      "description": "Creates an invoice for the first paid period and a checkout session at the payment provider. The card form may ask for 3-D Secure, so the result only arrives by webhook.",
+      "group": "uc",
+      "position": {
+        "x": 700,
+        "y": 0
+      }
+    },
+    {
+      "id": "uc-upgrade",
+      "type": "component",
+      "title": "Change plan",
+      "tech": "Kotlin · Spring",
+      "description": "Upgrades charge the prorated difference now (`proration_behavior = always_invoice`). Downgrades take effect at the next renewal and charge nothing.",
+      "group": "uc",
+      "position": {
+        "x": 1000,
+        "y": 0
+      }
+    },
+    {
+      "id": "uc-trial",
+      "type": "component",
+      "title": "Start trial",
+      "tech": "Kotlin · Spring",
+      "description": "Inserts a `trialing` subscription on the Trial plan, 14 days, no card required. Idempotent on `accountId`.",
+      "group": "uc",
+      "position": {
+        "x": 700,
+        "y": 600
+      }
+    },
+    {
+      "id": "wh-receiver",
+      "type": "component",
+      "title": "Webhook receiver",
+      "tech": "Kotlin · Spring",
+      "description": "Checks the `Signature` header (HMAC-SHA256, 5 min tolerance), writes the raw event to the inbox and answers `200` within 100 ms. No business logic here.",
+      "group": "webhooks",
+      "position": {
+        "x": 1350,
+        "y": 0
+      }
+    },
+    {
+      "id": "inbox",
+      "type": "queue",
+      "title": "Webhook inbox",
+      "tech": "PostgreSQL table",
+      "description": "Table `webhook_inbox (event_id PK, type, payload, received_at, processed_at)`. `INSERT … ON CONFLICT (event_id) DO NOTHING` drops provider retries and duplicates.",
+      "group": "webhooks",
+      "position": {
+        "x": 1350,
+        "y": 150
+      }
+    },
+    {
+      "id": "w-events",
+      "type": "service",
+      "title": "Event processor",
+      "tech": "Kotlin worker",
+      "description": "Polls the inbox with `FOR UPDATE SKIP LOCKED`, batch 50, every 1 s. Maps provider events to domain events and sets `processed_at`. Events for invoices already settled are skipped.",
+      "group": "workers",
+      "position": {
+        "x": 1700,
+        "y": 150
+      }
+    },
+    {
+      "id": "w-charge",
+      "type": "service",
+      "title": "Charge worker",
+      "tech": "Kotlin worker",
+      "description": "Charges the saved card off-session for renewals and dunning retries. Reads the result from the synchronous API reply; the matching webhook is later skipped by the inbox.",
+      "group": "workers",
+      "position": {
+        "x": 2050,
+        "y": 0
+      }
+    },
+    {
+      "id": "sched-renew",
+      "type": "task",
+      "title": "Renewal scheduler",
+      "tech": "Cron · every 15 min",
+      "description": "Selects subscriptions with `current_period_end <= now()` and status `active`, and enqueues one RENEW job each (unique on `subscriptionId + period`).",
+      "group": "scheduler",
+      "position": {
+        "x": 2400,
+        "y": 0
+      }
+    },
+    {
+      "id": "sched-dunning",
+      "type": "task",
+      "title": "Dunning scheduler",
+      "tech": "Delayed jobs table",
+      "description": "Holds one pending attempt per past-due invoice (`dunning_attempts`). Fires a RETRY job when `run_at` is reached; see the Dunning schedule rule.",
+      "rules": [
+        "dunning-schedule"
+      ],
+      "group": "scheduler",
+      "position": {
+        "x": 2400,
+        "y": 150
+      }
+    },
+    {
+      "id": "l-paid",
+      "type": "queue",
+      "title": "Payment succeeded",
+      "tech": "Kafka consumer",
+      "description": "Marks the invoice paid, sets the subscription `active` with the new period, clears any pending dunning attempt, publishes `SubscriptionChanged`.",
+      "group": "listeners",
+      "position": {
+        "x": 1700,
+        "y": 450
+      }
+    },
+    {
+      "id": "l-failed",
+      "type": "queue",
+      "title": "Payment failed",
+      "tech": "Kafka consumer",
+      "description": "Sets the subscription `past_due` and books the next attempt from the Dunning schedule. After the last attempt it cancels the subscription.",
+      "rules": [
+        "dunning-schedule"
+      ],
+      "group": "listeners",
+      "position": {
+        "x": 2400,
+        "y": 450
+      }
+    },
+    {
+      "id": "l-entitle",
+      "type": "queue",
+      "title": "Entitlement sync",
+      "tech": "Kafka consumer",
+      "description": "Recomputes limits from the plan and status, writes them to the entitlement cache, publishes `EntitlementsChanged`.",
+      "rules": [
+        "plan-entitlements"
+      ],
+      "group": "listeners",
+      "position": {
+        "x": 2050,
+        "y": 600
+      }
+    },
+    {
+      "id": "l-notify",
+      "type": "queue",
+      "title": "Customer notifier",
+      "tech": "Kafka consumer",
+      "description": "Picks the email template per event (welcome, receipt, plan changed, payment failed, cancelled) and sends it through the email service. Dedupes on `eventId` for 24 h.",
+      "group": "listeners",
+      "position": {
+        "x": 2750,
+        "y": 600
+      }
+    },
+    {
+      "id": "subs-db",
+      "type": "database",
+      "title": "Subscriptions DB",
+      "tech": "PostgreSQL 16",
+      "description": "Tables `subscriptions`, `dunning_attempts`, `webhook_inbox`. Status: `trialing → active → past_due → cancelled`.",
+      "group": "stores",
+      "position": {
+        "x": 700,
+        "y": 900
+      }
+    },
+    {
+      "id": "plan-catalog",
+      "type": "database",
+      "title": "Plan catalog",
+      "tech": "PostgreSQL 16",
+      "description": "Plans, monthly prices in cents and the provider price ids. Read for proration previews.",
+      "group": "stores",
+      "position": {
+        "x": 1000,
+        "y": 900
+      }
+    },
+    {
+      "id": "invoice-store",
+      "type": "database",
+      "title": "Invoice store",
+      "tech": "PostgreSQL 16 + object storage",
+      "description": "Invoice rows (`draft → open → paid | void`) and rendered PDFs. Amounts in cents, currency per account.",
+      "group": "stores",
+      "position": {
+        "x": 1700,
+        "y": 900
+      }
+    },
+    {
+      "id": "ent-cache",
+      "type": "database",
+      "title": "Entitlement cache",
+      "tech": "Redis",
+      "description": "Key `ent:{accountId}` → `{ plan, status, seats, projects, support }`. No TTL; rewritten on every `SubscriptionChanged`.",
+      "group": "stores",
+      "position": {
+        "x": 2050,
+        "y": 900
+      }
+    },
+    {
+      "id": "provider",
+      "type": "external",
+      "title": "Payment provider",
+      "tech": "REST + webhooks",
+      "description": "Stores cards, runs checkout sessions and charges. Sends `invoice.paid` / `invoice.payment_failed` webhooks, retried for 3 days.",
+      "position": {
+        "x": 1350,
+        "y": -400
+      }
+    },
+    {
+      "id": "email",
+      "type": "external",
+      "title": "Email service",
+      "tech": "HTTP API",
+      "description": "Transactional email; templates live there and are addressed by id.",
+      "position": {
+        "x": 3150,
+        "y": 600
+      }
+    },
+    {
+      "id": "warehouse",
+      "type": "external",
+      "title": "Analytics warehouse",
+      "tech": "Columnar warehouse",
+      "description": "MRR, churn and dunning recovery dashboards, loaded nightly.",
+      "position": {
+        "x": 1700,
+        "y": 1200
+      }
+    }
+  ],
+  "groups": [
+    {
+      "id": "edge",
+      "title": "Edge",
+      "style": {
+        "fill": "slate"
+      }
+    },
+    {
+      "id": "account",
+      "title": "Account service",
+      "style": {
+        "fill": "blue"
+      }
+    },
+    {
+      "id": "billing",
+      "title": "Billing service",
+      "style": {
+        "fill": "violet"
+      }
+    },
+    {
+      "id": "uc",
+      "title": "API use cases",
+      "parent": "billing",
+      "style": {
+        "fill": "indigo"
+      }
+    },
+    {
+      "id": "webhooks",
+      "title": "Webhook intake",
+      "parent": "billing",
+      "style": {
+        "fill": "amber"
+      }
+    },
+    {
+      "id": "workers",
+      "title": "Workers",
+      "parent": "billing",
+      "style": {
+        "fill": "orange"
+      }
+    },
+    {
+      "id": "scheduler",
+      "title": "Scheduler",
+      "parent": "billing",
+      "style": {
+        "fill": "teal"
+      }
+    },
+    {
+      "id": "listeners",
+      "title": "Listeners",
+      "parent": "billing",
+      "style": {
+        "fill": "green"
+      }
+    },
+    {
+      "id": "stores",
+      "title": "Stores",
+      "parent": "billing",
+      "style": {
+        "fill": "cyan"
+      }
+    }
+  ],
+  "edges": [
+    {
+      "id": "web-gateway",
+      "from": "web",
+      "to": "gateway",
+      "protocol": "http",
+      "label": "HTTPS /api/*"
+    },
+    {
+      "id": "gw-account",
+      "from": "gateway",
+      "to": "account-api",
+      "protocol": "http",
+      "label": "POST /signup"
+    },
+    {
+      "id": "account-idp",
+      "from": "account-api",
+      "to": "idp",
+      "protocol": "http",
+      "label": "create user"
+    },
+    {
+      "id": "idp-account",
+      "from": "idp",
+      "to": "account-api",
+      "protocol": "http",
+      "label": "sub + verify link"
+    },
+    {
+      "id": "account-trial",
+      "from": "account-api",
+      "to": "uc-trial",
+      "protocol": "grpc",
+      "label": "StartTrial"
+    },
+    {
+      "id": "gw-convert",
+      "from": "gateway",
+      "to": "uc-convert",
+      "protocol": "http",
+      "label": "POST /subscriptions/convert"
+    },
+    {
+      "id": "gw-upgrade",
+      "from": "gateway",
+      "to": "uc-upgrade",
+      "protocol": "http",
+      "label": "PATCH /subscriptions/plan"
+    },
+    {
+      "id": "convert-provider",
+      "from": "uc-convert",
+      "to": "provider",
+      "protocol": "http",
+      "label": "create checkout session"
+    },
+    {
+      "id": "upgrade-provider",
+      "from": "uc-upgrade",
+      "to": "provider",
+      "protocol": "http",
+      "label": "update subscription"
+    },
+    {
+      "id": "provider-wh",
+      "from": "provider",
+      "to": "wh-receiver",
+      "protocol": "http",
+      "label": "invoice.* webhooks"
+    },
+    {
+      "id": "wh-inbox",
+      "from": "wh-receiver",
+      "to": "inbox",
+      "protocol": "sql",
+      "label": "insert, dedupe"
+    },
+    {
+      "id": "inbox-events",
+      "from": "inbox",
+      "to": "w-events",
+      "protocol": "sql",
+      "label": "poll unprocessed"
+    },
+    {
+      "id": "events-paid",
+      "from": "w-events",
+      "to": "l-paid",
+      "protocol": "event",
+      "label": "PaymentSucceeded · Kafka"
+    },
+    {
+      "id": "renew-charge",
+      "from": "sched-renew",
+      "to": "w-charge",
+      "protocol": "sql",
+      "label": "RENEW job"
+    },
+    {
+      "id": "charge-provider",
+      "from": "w-charge",
+      "to": "provider",
+      "protocol": "http",
+      "label": "charge saved card"
+    },
+    {
+      "id": "provider-charge",
+      "from": "provider",
+      "to": "w-charge",
+      "protocol": "http",
+      "label": "charge result"
+    },
+    {
+      "id": "charge-failed",
+      "from": "w-charge",
+      "to": "l-failed",
+      "protocol": "event",
+      "label": "PaymentFailed · Kafka"
+    },
+    {
+      "id": "charge-paid",
+      "from": "w-charge",
+      "to": "l-paid",
+      "protocol": "event",
+      "label": "PaymentSucceeded · Kafka"
+    },
+    {
+      "id": "failed-dunning",
+      "from": "l-failed",
+      "to": "sched-dunning",
+      "protocol": "sql",
+      "label": "book next attempt"
+    },
+    {
+      "id": "dunning-charge",
+      "from": "sched-dunning",
+      "to": "w-charge",
+      "protocol": "sql",
+      "label": "RETRY job"
+    },
+    {
+      "id": "trial-entitle",
+      "from": "uc-trial",
+      "to": "l-entitle",
+      "protocol": "event",
+      "label": "SubscriptionChanged · Kafka"
+    },
+    {
+      "id": "paid-entitle",
+      "from": "l-paid",
+      "to": "l-entitle",
+      "protocol": "event",
+      "label": "SubscriptionChanged · Kafka"
+    },
+    {
+      "id": "failed-entitle",
+      "from": "l-failed",
+      "to": "l-entitle",
+      "protocol": "event",
+      "label": "SubscriptionChanged · Kafka"
+    },
+    {
+      "id": "entitle-notify",
+      "from": "l-entitle",
+      "to": "l-notify",
+      "protocol": "event",
+      "label": "EntitlementsChanged · Kafka"
+    },
+    {
+      "id": "notify-email",
+      "from": "l-notify",
+      "to": "email",
+      "protocol": "http",
+      "label": "send template"
+    },
+    {
+      "id": "account-db",
+      "from": "account-api",
+      "to": "accounts-db",
+      "protocol": "sql",
+      "label": "insert account",
+      "style": {
+        "dash": "dashed",
+        "width": 1.5
+      }
+    },
+    {
+      "id": "gw-cache",
+      "from": "gateway",
+      "to": "ent-cache",
+      "protocol": "other",
+      "label": "read limits",
+      "style": {
+        "dash": "dashed",
+        "width": 1.5
+      }
+    },
+    {
+      "id": "trial-subs",
+      "from": "uc-trial",
+      "to": "subs-db",
+      "protocol": "sql",
+      "label": "insert trialing",
+      "style": {
+        "dash": "dashed",
+        "width": 1.5
+      }
+    },
+    {
+      "id": "upgrade-catalog",
+      "from": "uc-upgrade",
+      "to": "plan-catalog",
+      "protocol": "sql",
+      "label": "read prices",
+      "style": {
+        "dash": "dashed",
+        "width": 1.5
+      }
+    },
+    {
+      "id": "paid-invoice",
+      "from": "l-paid",
+      "to": "invoice-store",
+      "protocol": "sql",
+      "label": "mark paid",
+      "style": {
+        "dash": "dashed",
+        "width": 1.5
+      }
+    },
+    {
+      "id": "entitle-cache",
+      "from": "l-entitle",
+      "to": "ent-cache",
+      "protocol": "other",
+      "label": "SET ent:{accountId}",
+      "style": {
+        "dash": "dashed",
+        "width": 1.5
+      }
+    },
+    {
+      "id": "dunning-notify",
+      "from": "sched-dunning",
+      "to": "l-notify",
+      "protocol": "event",
+      "label": "DunningEmail · Kafka",
+      "style": {
+        "dash": "dashed",
+        "width": 1.5
+      }
+    },
+    {
+      "id": "invoice-warehouse",
+      "from": "invoice-store",
+      "to": "warehouse",
+      "protocol": "other",
+      "label": "nightly export",
+      "style": {
+        "dash": "dashed",
+        "width": 1.5
+      }
+    },
+    {
+      "id": "q-convert-link",
+      "from": "q-convert",
+      "to": "uc-convert",
+      "protocol": "other",
+      "style": {
+        "dash": "dashed",
+        "width": 1.5
+      }
+    },
+    {
+      "id": "gap-card-link",
+      "from": "gap-card-update",
+      "to": "sched-dunning",
+      "protocol": "other",
+      "style": {
+        "dash": "dashed",
+        "width": 1.5
+      }
+    },
+    {
+      "id": "gap-cache-link",
+      "from": "gap-cold-cache",
+      "to": "ent-cache",
+      "protocol": "other",
+      "style": {
+        "dash": "dashed",
+        "width": 1.5
+      }
+    }
+  ],
+  "views": [],
+  "features": [
+    {
+      "id": "onboarding",
+      "title": "Onboarding"
+    },
+    {
+      "id": "payments",
+      "title": "Payments"
+    },
+    {
+      "id": "recovery",
+      "title": "Recovery"
+    }
+  ],
+  "flows": [
+    {
+      "id": "signup-trial",
+      "title": "Sign up with trial",
+      "feature": "onboarding",
+      "trigger": "Visitor submits the signup form",
+      "outcome": "Account exists, a 14-day Trial is running with Trial limits, welcome email sent. No card on file, no invoice.",
+      "steps": [
+        {
+          "id": "su-submit",
+          "edge": "web-gateway",
+          "title": "Submit signup",
+          "payload": "{ \"email\": \"ada@example.com\", \"company\": \"Northwind Labs\", \"plan\": \"trial\" }"
+        },
+        {
+          "id": "su-route",
+          "edge": "gw-account",
+          "title": "Route to Account API",
+          "sla": "< 800 ms end to end"
+        },
+        {
+          "id": "su-idp",
+          "edge": "account-idp",
+          "title": "Create login",
+          "description": "Fails with `409` if the email already has a login; the form shows \"Sign in instead\"."
+        },
+        {
+          "id": "su-idp-ok",
+          "edge": "idp-account",
+          "title": "Login created",
+          "description": "Account API inserts the account and owner member (dashed connector to Accounts DB)."
+        },
+        {
+          "id": "su-trial",
+          "edge": "account-trial",
+          "title": "Start trial",
+          "payload": "{ \"accountId\": \"acc_7Q2\", \"plan\": \"trial\", \"trialDays\": 14 }"
+        },
+        {
+          "id": "su-entitle",
+          "edge": "trial-entitle",
+          "title": "Publish SubscriptionChanged",
+          "description": "Start trial inserts the `trialing` subscription first (dashed connector to Subscriptions DB).",
+          "payload": "{ \"eventId\": \"evt_01H…\", \"accountId\": \"acc_7Q2\", \"plan\": \"trial\", \"status\": \"trialing\", \"trialEndsAt\": \"2026-10-20T09:00:00Z\" }",
+          "rules": [
+            "plan-entitlements"
+          ],
+          "ruleInputs": {
+            "plan-entitlements": {
+              "plan": "trial"
+            }
+          }
+        },
+        {
+          "id": "su-notify",
+          "edge": "entitle-notify",
+          "title": "Publish EntitlementsChanged",
+          "description": "Also `SET ent:{accountId}` in the entitlement cache (dashed): the gateway enforces the new limits on the next request."
+        },
+        {
+          "id": "su-email",
+          "edge": "notify-email",
+          "title": "Send welcome email",
+          "sla": "< 1 min"
+        }
+      ]
+    },
+    {
+      "id": "trial-convert",
+      "title": "Trial converts to paid",
+      "feature": "payments",
+      "trigger": "Trial customer picks Pro and enters a card",
+      "outcome": "Invoice paid, subscription active on Pro for one month, Pro limits live, receipt sent. A declined card leaves the trial running.",
+      "steps": [
+        {
+          "id": "cv-submit",
+          "edge": "web-gateway",
+          "title": "Choose Pro, pay"
+        },
+        {
+          "id": "cv-route",
+          "edge": "gw-convert",
+          "title": "Convert to paid",
+          "payload": "{ \"accountId\": \"acc_7Q2\", \"plan\": \"pro\", \"interval\": \"month\" }"
+        },
+        {
+          "id": "cv-session",
+          "edge": "convert-provider",
+          "title": "Create checkout session",
+          "description": "Creates an `open` invoice for 4,900 cents first. The customer finishes card entry and 3-D Secure on the provider’s hosted form.",
+          "payload": "{ \"customer\": \"cus_9K1\", \"price\": \"price_pro_month\", \"invoiceId\": \"inv_3001\", \"successUrl\": \"/billing?ok=1\" }"
+        },
+        {
+          "id": "cv-webhook",
+          "edge": "provider-wh",
+          "title": "Webhook invoice.paid",
+          "condition": "charge succeeded",
+          "payload": "{ \"id\": \"evt_5Rt\", \"type\": \"invoice.paid\", \"data\": { \"invoice\": \"pi_inv_3001\", \"amount_paid\": 4900, \"currency\": \"eur\" } }"
+        },
+        {
+          "id": "cv-inbox",
+          "edge": "wh-inbox",
+          "title": "Store in inbox",
+          "description": "A retried delivery with the same `id` is dropped by the primary key."
+        },
+        {
+          "id": "cv-process",
+          "edge": "inbox-events",
+          "title": "Process event",
+          "sla": "< 2 s after receipt"
+        },
+        {
+          "id": "cv-paid",
+          "edge": "events-paid",
+          "title": "Publish PaymentSucceeded"
+        },
+        {
+          "id": "cv-entitle",
+          "edge": "paid-entitle",
+          "title": "Activate subscription",
+          "description": "Marks the invoice paid (dashed connector to Invoice store), sets status `active`, period 1 month.",
+          "rules": [
+            "plan-entitlements"
+          ],
+          "ruleInputs": {
+            "plan-entitlements": {
+              "plan": "pro"
+            }
+          }
+        },
+        {
+          "id": "cv-notify",
+          "edge": "entitle-notify",
+          "title": "Publish EntitlementsChanged",
+          "description": "Also `SET ent:{accountId}` in the entitlement cache (dashed): the gateway enforces the new limits on the next request."
+        },
+        {
+          "id": "cv-email",
+          "edge": "notify-email",
+          "title": "Send receipt",
+          "sla": "< 1 min",
+          "payload": "{ \"template\": \"receipt\", \"to\": \"ada@example.com\", \"invoice\": \"INV-2026-3001\", \"amount\": \"€49.00\" }"
+        }
+      ]
+    },
+    {
+      "id": "renewal-dunning",
+      "title": "Renewal fails, dunning",
+      "feature": "recovery",
+      "trigger": "Monthly renewal is due and the saved card is declined",
+      "outcome": "Either a retry succeeds and the subscription is active again, or after the 4th failed attempt it is cancelled and the account drops to Free limits. Data is kept either way.",
+      "branches": [
+        {
+          "id": "recovered",
+          "label": "Recovered",
+          "condition": "a retry is approved"
+        },
+        {
+          "id": "cancelled",
+          "label": "Cancelled after retries",
+          "condition": "attempt 4 is declined",
+          "errorPath": true
+        }
+      ],
+      "steps": [
+        {
+          "id": "dn-renew",
+          "edge": "renew-charge",
+          "title": "Enqueue RENEW",
+          "description": "Charge worker opens the renewal invoice for the new period before charging."
+        },
+        {
+          "id": "dn-charge",
+          "edge": "charge-provider",
+          "title": "Charge saved card",
+          "payload": "{ \"customer\": \"cus_9K1\", \"amount\": 4900, \"currency\": \"eur\", \"off_session\": true, \"idempotencyKey\": \"inv_3187:1\" }"
+        },
+        {
+          "id": "dn-declined",
+          "edge": "provider-charge",
+          "title": "Card declined",
+          "payload": "{ \"status\": \"failed\", \"decline_code\": \"insufficient_funds\" }"
+        },
+        {
+          "id": "dn-failed",
+          "edge": "charge-failed",
+          "title": "Publish PaymentFailed",
+          "payload": "{ \"invoiceId\": \"inv_3187\", \"attempt\": 1, \"reason\": \"insufficient_funds\" }"
+        },
+        {
+          "id": "dn-book",
+          "edge": "failed-dunning",
+          "title": "Book next attempt",
+          "description": "Sets the subscription `past_due` and emails `payment-failed-1` (dashed `DunningEmail` to the notifier).",
+          "rules": [
+            "dunning-schedule"
+          ],
+          "ruleInputs": {
+            "dunning-schedule": {
+              "attempt": "1"
+            }
+          }
+        },
+        {
+          "id": "dn-retry",
+          "edge": "dunning-charge",
+          "title": "Fire RETRY job",
+          "condition": "run_at reached",
+          "description": "Attempts 2, 3 and 4 each repeat the next two steps; the schedule decides the wait."
+        },
+        {
+          "id": "dn-recharge",
+          "edge": "charge-provider",
+          "title": "Retry the charge",
+          "payload": "{ \"customer\": \"cus_9K1\", \"amount\": 4900, \"off_session\": true, \"idempotencyKey\": \"inv_3187:2\" }"
+        },
+        {
+          "id": "dn-result",
+          "edge": "provider-charge",
+          "title": "Retry result"
+        },
+        {
+          "id": "rc-paid",
+          "edge": "charge-paid",
+          "title": "Publish PaymentSucceeded",
+          "branch": "recovered"
+        },
+        {
+          "id": "rc-entitle",
+          "edge": "paid-entitle",
+          "title": "Back to active",
+          "branch": "recovered",
+          "description": "Marks the invoice paid, deletes the pending `dunning_attempts` row, status `past_due → active`.",
+          "rules": [
+            "plan-entitlements"
+          ],
+          "ruleInputs": {
+            "plan-entitlements": {
+              "plan": "pro"
+            }
+          }
+        },
+        {
+          "id": "rc-notify",
+          "edge": "entitle-notify",
+          "title": "Publish EntitlementsChanged",
+          "description": "Also `SET ent:{accountId}` in the entitlement cache (dashed): the gateway enforces the new limits on the next request.",
+          "branch": "recovered"
+        },
+        {
+          "id": "rc-email",
+          "edge": "notify-email",
+          "title": "Send receipt",
+          "sla": "< 1 min",
+          "branch": "recovered"
+        },
+        {
+          "id": "cx-failed",
+          "edge": "charge-failed",
+          "title": "Publish PaymentFailed",
+          "branch": "cancelled",
+          "payload": "{ \"invoiceId\": \"inv_3187\", \"attempt\": 4, \"reason\": \"card_expired\" }"
+        },
+        {
+          "id": "cx-cancel",
+          "edge": "failed-entitle",
+          "title": "Cancel subscription",
+          "branch": "cancelled",
+          "description": "Voids the open invoice, status `past_due → cancelled`. Plan entitlements fall to the Free row.",
+          "rules": [
+            "dunning-schedule",
+            "plan-entitlements"
+          ],
+          "ruleInputs": {
+            "dunning-schedule": {
+              "attempt": "4"
+            },
+            "plan-entitlements": {
+              "plan": "free"
+            }
+          }
+        },
+        {
+          "id": "cx-notify",
+          "edge": "entitle-notify",
+          "title": "Publish EntitlementsChanged",
+          "description": "Also `SET ent:{accountId}` in the entitlement cache (dashed): the gateway enforces the new limits on the next request.",
+          "branch": "cancelled"
+        },
+        {
+          "id": "cx-email",
+          "edge": "notify-email",
+          "title": "Send cancellation email",
+          "sla": "< 1 min",
+          "branch": "cancelled"
+        }
+      ]
+    },
+    {
+      "id": "upgrade-proration",
+      "title": "Upgrade plan with proration",
+      "feature": "payments",
+      "trigger": "Owner moves from Starter to Pro mid-period",
+      "outcome": "Prorated difference charged now, Pro limits live at once, renewal date unchanged. A failed proration charge keeps the account on Starter.",
+      "steps": [
+        {
+          "id": "up-submit",
+          "edge": "web-gateway",
+          "title": "Choose Pro"
+        },
+        {
+          "id": "up-route",
+          "edge": "gw-upgrade",
+          "title": "Change plan",
+          "description": "Reads both prices from the plan catalog (dashed) and shows the preview: 18 of 30 days left × (4,900 − 1,900) = 1,800 cents."
+        },
+        {
+          "id": "up-provider",
+          "edge": "upgrade-provider",
+          "title": "Update subscription",
+          "payload": "{ \"subscription\": \"sub_44Z\", \"price\": \"price_pro_month\", \"proration_behavior\": \"always_invoice\", \"proration_date\": 1791100800, \"expected_amount\": 1800 }"
+        },
+        {
+          "id": "up-webhook",
+          "edge": "provider-wh",
+          "title": "Webhook invoice.paid",
+          "payload": "{ \"id\": \"evt_8Lm\", \"type\": \"invoice.paid\", \"data\": { \"billing_reason\": \"subscription_update\", \"amount_paid\": 1800 } }"
+        },
+        {
+          "id": "up-inbox",
+          "edge": "wh-inbox",
+          "title": "Store in inbox"
+        },
+        {
+          "id": "up-process",
+          "edge": "inbox-events",
+          "title": "Process event"
+        },
+        {
+          "id": "up-paid",
+          "edge": "events-paid",
+          "title": "Publish PaymentSucceeded"
+        },
+        {
+          "id": "up-entitle",
+          "edge": "paid-entitle",
+          "title": "Switch plan to Pro",
+          "description": "Keeps `current_period_end`; only the plan changes.",
+          "rules": [
+            "plan-entitlements"
+          ],
+          "ruleInputs": {
+            "plan-entitlements": {
+              "plan": "pro"
+            }
+          }
+        },
+        {
+          "id": "up-notify",
+          "edge": "entitle-notify",
+          "title": "Publish EntitlementsChanged",
+          "description": "Also `SET ent:{accountId}` in the entitlement cache (dashed): the gateway enforces the new limits on the next request."
+        },
+        {
+          "id": "up-email",
+          "edge": "notify-email",
+          "title": "Send plan-changed email",
+          "sla": "< 1 min"
+        }
+      ]
+    }
+  ],
+  "rules": {
+    "dunning-schedule": {
+      "title": "Dunning schedule",
+      "description": "What happens after a failed renewal charge, by the number of the attempt that just failed. Attempt 1 is the renewal itself; the subscription stays usable while `past_due`.",
+      "hitPolicy": "first",
+      "inputs": [
+        {
+          "id": "attempt",
+          "label": "Failed attempt #"
+        }
+      ],
+      "outputs": [
+        {
+          "id": "wait",
+          "label": "Next attempt in"
+        },
+        {
+          "id": "template",
+          "label": "Email template"
+        },
+        {
+          "id": "action",
+          "label": "Action"
+        }
+      ],
+      "rows": [
+        {
+          "id": "a1",
+          "when": [
+            "1"
+          ],
+          "then": [
+            "3 days",
+            "payment-failed-1",
+            "Set past_due, book retry"
+          ]
+        },
+        {
+          "id": "a2",
+          "when": [
+            "2"
+          ],
+          "then": [
+            "5 days",
+            "payment-failed-2",
+            "Book retry"
+          ]
+        },
+        {
+          "id": "a3",
+          "when": [
+            "3"
+          ],
+          "then": [
+            "7 days",
+            "final-notice",
+            "Book last retry, show banner"
+          ]
+        },
+        {
+          "id": "a4",
+          "when": [
+            "any"
+          ],
+          "then": [
+            "—",
+            "subscription-cancelled",
+            "Cancel, downgrade to Free"
+          ]
+        }
+      ]
+    },
+    "plan-entitlements": {
+      "title": "Plan entitlements",
+      "description": "Limits written to the entitlement cache for each plan. A cancelled subscription falls to Free.",
+      "hitPolicy": "first",
+      "inputs": [
+        {
+          "id": "plan",
+          "label": "Plan"
+        }
+      ],
+      "outputs": [
+        {
+          "id": "seats",
+          "label": "Seats"
+        },
+        {
+          "id": "projects",
+          "label": "Projects"
+        },
+        {
+          "id": "support",
+          "label": "Support"
+        }
+      ],
+      "rows": [
+        {
+          "id": "trial",
+          "when": [
+            "trial"
+          ],
+          "then": [
+            "5",
+            "10",
+            "Email, 2 business days"
+          ]
+        },
+        {
+          "id": "starter",
+          "when": [
+            "starter"
+          ],
+          "then": [
+            "3",
+            "5",
+            "Email, 2 business days"
+          ]
+        },
+        {
+          "id": "pro",
+          "when": [
+            "pro"
+          ],
+          "then": [
+            "20",
+            "Unlimited",
+            "Email, 1 business day"
+          ]
+        },
+        {
+          "id": "business",
+          "when": [
+            "business"
+          ],
+          "then": [
+            "100",
+            "Unlimited",
+            "Chat, 4 h response"
+          ]
+        },
+        {
+          "id": "free",
+          "when": [
+            "any"
+          ],
+          "then": [
+            "1",
+            "2",
+            "Community forum"
+          ]
+        }
+      ]
+    }
+  },
+  "stickies": [
+    {
+      "id": "q-convert",
+      "text": "**Open question · double convert.** The checkout session call has no idempotency key, so two quick clicks open two sessions. Key it on `invoiceId`?",
+      "color": "amber",
+      "position": {
+        "x": 650,
+        "y": -400
+      },
+      "size": {
+        "width": 240,
+        "height": 120
+      }
+    },
+    {
+      "id": "gap-card-update",
+      "text": "**Gap · card update during dunning.** A customer who adds a new card waits for the next booked attempt (up to 7 days); nothing retries at once.",
+      "color": "amber",
+      "position": {
+        "x": 3150,
+        "y": 100
+      },
+      "size": {
+        "width": 240,
+        "height": 120
+      }
+    },
+    {
+      "id": "gap-cold-cache",
+      "text": "**Gap · cold cache.** If `ent:{accountId}` is missing, the gateway fails open and allows the request. Nothing rebuilds the key until the next `SubscriptionChanged`.",
+      "color": "amber",
+      "position": {
+        "x": 2050,
+        "y": 1200
+      },
+      "size": {
+        "width": 240,
+        "height": 120
+      }
+    }
+  ]
+}

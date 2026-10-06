@@ -1,0 +1,1434 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://sododeck.com/schema/v1.json",
+  "title": "SododeckFile",
+  "description": "A Sododeck deck file (.sododeck.json), format version 1. Every object has a stable `id` that never changes on rename, and every reference between objects is by id. Ids are unique within their collection and references must resolve to existing objects; the app checks both when it loads a file (they cannot be expressed here). Keys are written in the order declared in this schema.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "$schema",
+    "version",
+    "nodes",
+    "groups",
+    "edges",
+    "views",
+    "features",
+    "flows",
+    "rules",
+    "stickies"
+  ],
+  "properties": {
+    "$schema": {
+      "description": "URL of the JSON Schema this file conforms to.",
+      "type": "string",
+      "const": "https://sododeck.com/schema/v1.json"
+    },
+    "version": {
+      "description": "File format version.",
+      "type": "integer",
+      "const": 1
+    },
+    "name": {
+      "$ref": "#/$defs/Text",
+      "description": "Deck name. When absent, the app shows a name from its library."
+    },
+    "description": {
+      "description": "What this deck models (markdown).",
+      "type": "string"
+    },
+    "tags": {
+      "$ref": "#/$defs/Tags",
+      "description": "Free-form tags for the deck."
+    },
+    "swatches": {
+      "description": "Custom hex colours saved for reuse by this deck's cards and groups, in the order they were added. At most 12; the app enforces the cap when adding.",
+      "type": "array",
+      "items": { "$ref": "#/$defs/HexColor" },
+      "uniqueItems": true
+    },
+    "tagColors": {
+      "description": "One colour per tag for the whole deck: the tag as first typed (case kept) maps to a card colour name or a `#rrggbb` hex. A tag with no entry is slate. Keys are non-empty and no two keys are equal when case and spacing are ignored. Tags on nodes, connections, flows and steps stay plain text; this map only colours them.",
+      "type": "object",
+      "additionalProperties": { "$ref": "#/$defs/ColorRef" }
+    },
+    "packs": {
+      "description": "Ids of the card-type packs that are on for this deck: the Add flyout and the type pickers list their types. Absent means `[\"architecture\"]` only. At least one id; unknown ids are kept.",
+      "type": "array",
+      "items": { "$ref": "#/$defs/PackId" },
+      "uniqueItems": true,
+      "minItems": 1
+    },
+    "fields": {
+      "description": "Typed field definitions of the deck (032), in deck order: user fields, plus any built-in (`tech`, `host`, `owner`) or default field (e.g. `task.status`) whose order, on-card choice or definition the user changed. A type's fields are this list filtered to that type. Absent means only the built-in fields and each type's default fields, as the app defines them.",
+      "type": "array",
+      "items": { "$ref": "#/$defs/FieldDef" }
+    },
+    "fieldDefaults": {
+      "description": "Card types whose default fields now live in `fields` (032): for these types the app no longer adds its own default fields, so a deleted default stays deleted. Absent means every type uses the app's default fields.",
+      "type": "array",
+      "items": { "$ref": "#/$defs/TypeId" },
+      "uniqueItems": true
+    },
+    "dialect": {
+      "$ref": "#/$defs/Dialect",
+      "description": "SQL dialect of the deck's database schema (040): one per deck. Absent means `generic`."
+    },
+    "blockSqlExport": {
+      "const": true,
+      "description": "Database pack (052): SQL export is refused while the export scope has database errors. Absent means off."
+    },
+    "enums": {
+      "description": "Enum types of the deck's database schema (040), in order. Columns name one by id (`enumRef`). Absent means no enums.",
+      "type": "array",
+      "items": { "$ref": "#/$defs/DbEnum" }
+    },
+    "tableDisplay": {
+      "$ref": "#/$defs/TableDisplay",
+      "description": "How tables draw in this deck (041). Absent means Auto detail with every part shown."
+    },
+    "relationshipDisplay": {
+      "$ref": "#/$defs/RelationshipDisplay",
+      "description": "How relationships between tables draw in this deck (042). Absent means cardinality ends in crow's foot, labels following the Labels tool."
+    },
+    "groupingMode": {
+      "description": "How the deck's tables are grouped on the canvas (048): `schema` groups tables that share a schema name (shown as derived groups; stored groups and `group` / `parent` are untouched). Absent means By group, the groups stored in the file.",
+      "type": "string",
+      "enum": ["schema"]
+    },
+    "nodes": {
+      "description": "Components of the system.",
+      "type": "array",
+      "items": { "$ref": "#/$defs/Node" }
+    },
+    "groups": {
+      "description": "Named sets of nodes (domain, bounded context, VPC). Nodes join a group via `node.group`.",
+      "type": "array",
+      "items": { "$ref": "#/$defs/Group" }
+    },
+    "edges": {
+      "description": "Connections between nodes or groups. Either end of a connection may be a node or a group.",
+      "type": "array",
+      "items": { "$ref": "#/$defs/Edge" }
+    },
+    "views": {
+      "description": "Saved lenses over the same model (system, feature, infra, custom).",
+      "type": "array",
+      "items": { "$ref": "#/$defs/View" }
+    },
+    "features": {
+      "description": "Business capabilities that group flows.",
+      "type": "array",
+      "items": { "$ref": "#/$defs/Feature" }
+    },
+    "flows": {
+      "description": "Ordered paths over existing edges.",
+      "type": "array",
+      "items": { "$ref": "#/$defs/Flow" }
+    },
+    "rules": {
+      "description": "Business rules as decision tables, keyed by stable rule id. Keys must be valid ids.",
+      "type": "object",
+      "propertyNames": { "$ref": "#/$defs/Id" },
+      "additionalProperties": { "$ref": "#/$defs/Rule" }
+    },
+    "stickies": {
+      "description": "Sticky notes, free on the canvas or anchored to an object.",
+      "type": "array",
+      "items": { "$ref": "#/$defs/Sticky" }
+    },
+    "images": {
+      "description": "Pictures placed on the canvas (055). Each names a stored picture in `assets`. Written only when the deck holds at least one.",
+      "type": "array",
+      "items": { "$ref": "#/$defs/Image" }
+    },
+    "assets": {
+      "description": "The pictures the images use (055), keyed by picture id: the lowercase SHA-256 of the stored bytes, 64 hex characters. Written only when the deck holds at least one image. An entry no image uses is allowed and dropped on the next save.",
+      "type": "object",
+      "additionalProperties": { "$ref": "#/$defs/Asset" }
+    }
+  },
+  "$defs": {
+    "Id": {
+      "title": "Id",
+      "description": "Stable, opaque identifier: 1–64 letters, digits, `-`, `_`, `.` or `:`. Never derived from a title and never changed on rename.",
+      "type": "string",
+      "pattern": "^[A-Za-z0-9_.:-]{1,64}$"
+    },
+    "Text": {
+      "title": "Text",
+      "description": "Non-empty text.",
+      "type": "string",
+      "minLength": 1
+    },
+    "Tags": {
+      "title": "Tags",
+      "description": "Free-form tags.",
+      "type": "array",
+      "items": { "$ref": "#/$defs/Text" }
+    },
+    "Position": {
+      "title": "Position",
+      "description": "Canvas coordinates in pixels. May be negative or fractional.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["x", "y"],
+      "properties": {
+        "x": { "description": "Horizontal coordinate.", "type": "number" },
+        "y": { "description": "Vertical coordinate.", "type": "number" }
+      }
+    },
+    "Size": {
+      "title": "Size",
+      "description": "A width and a height in canvas pixels. Both are greater than 0.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["width", "height"],
+      "properties": {
+        "width": { "description": "Width in pixels.", "type": "number", "exclusiveMinimum": 0 },
+        "height": { "description": "Height in pixels.", "type": "number", "exclusiveMinimum": 0 }
+      }
+    },
+    "Frame": {
+      "title": "Frame",
+      "description": "A rectangle on the canvas: its top-left corner and its size.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["position", "size"],
+      "properties": {
+        "position": { "$ref": "#/$defs/Position" },
+        "size": { "$ref": "#/$defs/Size" }
+      }
+    },
+    "Side": {
+      "title": "Side",
+      "description": "A side of a card: `top`, `right`, `bottom` or `left`.",
+      "type": "string",
+      "enum": ["top", "right", "bottom", "left"]
+    },
+    "EdgeShape": {
+      "title": "EdgeShape",
+      "description": "Line type of a connector: `curved`, `elbow` (right-angle segments) or `straight`.",
+      "type": "string",
+      "enum": ["curved", "elbow", "straight"]
+    },
+    "EdgeStyle": {
+      "title": "EdgeStyle",
+      "description": "How a connector line looks. At least one key is set; absent `style` means the default look.",
+      "type": "object",
+      "additionalProperties": false,
+      "minProperties": 1,
+      "properties": {
+        "shape": {
+          "$ref": "#/$defs/EdgeShape",
+          "description": "Line type. When absent, a connector with a route `offset` is `elbow`, any other is `curved`."
+        },
+        "dash": {
+          "description": "Dash pattern. When absent, `solid`.",
+          "type": "string",
+          "enum": ["solid", "dashed", "dotted"]
+        },
+        "width": {
+          "description": "Line weight in canvas pixels. When absent, 2.",
+          "type": "number",
+          "enum": [1, 1.5, 2, 3, 4]
+        },
+        "color": {
+          "$ref": "#/$defs/ColorRef",
+          "description": "Line colour. When absent, the default grey."
+        },
+        "animated": {
+          "description": "`true` runs dashes along the line toward the arrow. When absent, `false`.",
+          "type": "boolean"
+        }
+      }
+    },
+    "EdgeRoute": {
+      "title": "EdgeRoute",
+      "description": "How a connector is drawn between its two ends (each a card or a group frame). All fields optional; an empty object is valid. `offset` and `waypoints` are never both set.",
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "fromSide": {
+          "$ref": "#/$defs/Side",
+          "description": "Side of the source card or group the connector leaves from. When absent, it is picked automatically."
+        },
+        "toSide": {
+          "$ref": "#/$defs/Side",
+          "description": "Side of the target card or group the connector enters. When absent, it is picked automatically."
+        },
+        "offset": {
+          "description": "Shift of the middle segment, in canvas pixels, relative to where automatic routing puts it. Positive values go right or down. When absent, it is 0. It only applies when the resolved sides are opposite.",
+          "type": "number"
+        },
+        "fromAt": {
+          "description": "Where the connector leaves `fromSide`, as a fraction along that side (0 to 1; left to right on top and bottom, top to bottom on left and right). When absent, 0.5 (the middle). Needs `fromSide`.",
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1
+        },
+        "toAt": {
+          "description": "Where the connector enters `toSide`, as a fraction along that side (0 to 1; left to right on top and bottom, top to bottom on left and right). When absent, 0.5 (the middle). Needs `toSide`.",
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1
+        },
+        "waypoints": {
+          "description": "Bend points from the source to the target, relative to the two ends (cards or groups) so they follow them. When absent, the connector has no free bends. At least one when present. Never together with `offset`.",
+          "type": "array",
+          "items": { "$ref": "#/$defs/RouteWaypoint" }
+        }
+      }
+    },
+    "RouteWaypoint": {
+      "title": "RouteWaypoint",
+      "description": "One bend of a connector. Exactly one key per axis: `x` or `dx`, and `y` or `dy`. With S the source centre and T the target centre (a card, or a group frame) in the view being drawn, `x` and `y` are fractions of the S to T span (`P.x = S.x + x * (T.x - S.x)`), and `dx` and `dy` are pixel offsets from the midpoint, used when that span was under 22 px at placing.",
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "x": { "description": "Fraction of the source-to-target span on x.", "type": "number" },
+        "dx": {
+          "description": "Pixels from the midpoint on x; used when the x span was under 22 px.",
+          "type": "number"
+        },
+        "y": { "description": "Fraction of the source-to-target span on y.", "type": "number" },
+        "dy": {
+          "description": "Pixels from the midpoint on y; used when the y span was under 22 px.",
+          "type": "number"
+        }
+      }
+    },
+    "Link": {
+      "title": "Link",
+      "description": "A link to external documentation, a dashboard, a repository…",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["url"],
+      "properties": {
+        "label": { "description": "Text shown for the link.", "type": "string" },
+        "url": {
+          "$ref": "#/$defs/Text",
+          "description": "Absolute URL or relative path."
+        }
+      }
+    },
+    "Links": {
+      "title": "Links",
+      "description": "Links to related resources.",
+      "type": "array",
+      "items": { "$ref": "#/$defs/Link" }
+    },
+    "IdList": {
+      "title": "IdList",
+      "description": "A list of object ids.",
+      "type": "array",
+      "items": { "$ref": "#/$defs/Id" }
+    },
+    "TypeId": {
+      "title": "TypeId",
+      "description": "Id of a card type. Built-in ids: `service`, `database`, `gateway`, `client`, `queue`, `external`, `component`, `task`, `decision`, `document`, `warehouse`, `truck-route`, `issue`, `db-table`. Lowercase letters, digits and hyphens, starting with a letter, at most 48 characters. An id the app does not know is still valid: it is kept on save and drawn as a generic card.",
+      "type": "string",
+      "pattern": "^[a-z][a-z0-9-]{0,47}$"
+    },
+    "PackId": {
+      "title": "PackId",
+      "description": "Id of a card-type pack. Built-in ids: `architecture`, `process`, `logistics`, `data`, `database`. Same pattern as a type id. An id the app does not know is kept on save and reported.",
+      "type": "string",
+      "pattern": "^[a-z][a-z0-9-]{0,47}$"
+    },
+    "Level": {
+      "title": "Level",
+      "description": "Semantic zoom level, from widest to narrowest: `landscape`, `system`, `container`, `component`.",
+      "type": "string",
+      "enum": ["landscape", "system", "container", "component"]
+    },
+    "Protocol": {
+      "title": "Protocol",
+      "description": "Protocol family: `http` (incl. HTTPS, REST, GraphQL), `grpc`, `event` (message brokers such as Kafka), `sql`, `websocket`, `other`. Put specifics (\"Kafka\", \"HTTPS\") in the edge label.",
+      "type": "string",
+      "enum": ["http", "grpc", "event", "sql", "websocket", "other"]
+    },
+    "Direction": {
+      "title": "Direction",
+      "description": "`forward` (from → to), `both` (two-way) or `none` (undirected).",
+      "type": "string",
+      "enum": ["forward", "both", "none"]
+    },
+    "ViewType": {
+      "title": "ViewType",
+      "description": "Kind of view: `system`, `feature`, `infra` or `custom`.",
+      "type": "string",
+      "enum": ["system", "feature", "infra", "custom"]
+    },
+    "SubtitleField": {
+      "title": "SubtitleField",
+      "description": "Node field shown under node titles in a view: `tech`, `host`, `owner`, `flows` or `none`. `flows` shows \"<n> flows · <owner>\". Absent means `tech`.",
+      "type": "string",
+      "enum": ["tech", "host", "owner", "flows", "none"]
+    },
+    "HitPolicy": {
+      "title": "HitPolicy",
+      "description": "Which matching rows apply: `first` (the first match), `unique` (exactly one row may match), `collect` (all matches).",
+      "type": "string",
+      "enum": ["first", "unique", "collect"]
+    },
+    "StickyColor": {
+      "title": "StickyColor",
+      "description": "Sticky color, as a design-system tint name that follows the theme.",
+      "type": "string",
+      "enum": ["amber", "blue", "green", "clay", "grey"]
+    },
+    "CardColor": {
+      "title": "CardColor",
+      "description": "Named card colour, a design-system tint that follows the theme.",
+      "type": "string",
+      "enum": [
+        "red",
+        "orange",
+        "amber",
+        "yellow",
+        "lime",
+        "green",
+        "teal",
+        "cyan",
+        "blue",
+        "indigo",
+        "violet",
+        "pink",
+        "slate"
+      ]
+    },
+    "HexColor": {
+      "title": "HexColor",
+      "description": "Custom colour as a lowercase 6-digit hex value, e.g. `#7a3cff`.",
+      "type": "string",
+      "pattern": "^#[0-9a-f]{6}$"
+    },
+    "ColorRef": {
+      "title": "ColorRef",
+      "description": "A card or group colour: a named colour or a custom hex value.",
+      "anyOf": [{ "$ref": "#/$defs/CardColor" }, { "$ref": "#/$defs/HexColor" }]
+    },
+    "Style": {
+      "title": "Style",
+      "description": "Fill and/or stroke colour of a card or group. At least one of `fill` / `stroke` is set; absent `style` means no colour.",
+      "type": "object",
+      "additionalProperties": false,
+      "minProperties": 1,
+      "properties": {
+        "fill": { "$ref": "#/$defs/ColorRef", "description": "Background colour." },
+        "stroke": { "$ref": "#/$defs/ColorRef", "description": "Border colour." }
+      }
+    },
+    "FieldKind": {
+      "title": "FieldKind",
+      "description": "What a typed field holds: `text`, `number` (with an optional unit), `select` or `status` (one of its options), `person` (free text), `date`, `dateRange`, `link` or `progress` (0–100, drawn as a bar).",
+      "type": "string",
+      "enum": [
+        "text",
+        "number",
+        "select",
+        "status",
+        "person",
+        "date",
+        "dateRange",
+        "link",
+        "progress"
+      ]
+    },
+    "StatusIcon": {
+      "title": "StatusIcon",
+      "description": "Icon of a status option.",
+      "type": "string",
+      "enum": ["circle", "circle-dashed", "circle-dot", "circle-check", "eye", "door-open"]
+    },
+    "FieldOption": {
+      "title": "FieldOption",
+      "description": "One choice of a select or status field. Renaming it never changes its id or the values that point at it.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "label"],
+      "properties": {
+        "id": { "$ref": "#/$defs/Id" },
+        "label": {
+          "description": "Text shown on the chip, 1–48 characters.",
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 48
+        },
+        "color": { "$ref": "#/$defs/ColorRef", "description": "Chip colour. Absent means slate." },
+        "icon": {
+          "$ref": "#/$defs/StatusIcon",
+          "description": "Status options only: the icon drawn before the label. Absent means `circle`."
+        }
+      }
+    },
+    "FieldDef": {
+      "title": "FieldDef",
+      "description": "A typed field (032): a name and a kind, the card types it applies to and whether it shows on the card. The ids `tech`, `host` and `owner` are the built-in fields: their entry stores their order and on-card choice, and their kind is fixed (`text`, `text`, `person`).",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "name", "kind"],
+      "properties": {
+        "id": { "$ref": "#/$defs/Id" },
+        "name": {
+          "description": "Field name, 1–64 characters. Unique within a card type ignoring case (checked by the app).",
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 64
+        },
+        "kind": { "$ref": "#/$defs/FieldKind" },
+        "types": {
+          "description": "Card types the field applies to. Absent means every type.",
+          "type": "array",
+          "items": { "$ref": "#/$defs/TypeId" },
+          "uniqueItems": true
+        },
+        "onCard": {
+          "description": "`true` shows the field on every card of its types. Absent means false (drawer only).",
+          "type": "boolean"
+        },
+        "unit": {
+          "description": "Number fields only: a unit shown after the value, e.g. `h` or `pts`, 1–12 characters.",
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 12
+        },
+        "options": {
+          "description": "Select and status fields only: the choices, in order. Option ids are unique within the field.",
+          "type": "array",
+          "items": { "$ref": "#/$defs/FieldOption" }
+        }
+      }
+    },
+    "DateRangeValue": {
+      "title": "DateRangeValue",
+      "description": "A date range value: start and end as `YYYY-MM-DD`, the end on or after the start (checked by the app).",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["from", "to"],
+      "properties": {
+        "from": { "description": "Start date, `YYYY-MM-DD`.", "type": "string" },
+        "to": { "description": "End date, `YYYY-MM-DD`.", "type": "string" }
+      }
+    },
+    "LinkValue": {
+      "title": "LinkValue",
+      "description": "A link value: a web or mail address and an optional label. The app never fetches it.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["url"],
+      "properties": {
+        "url": { "description": "An `http:`, `https:` or `mailto:` address.", "type": "string" },
+        "label": { "description": "Text shown instead of the address.", "type": "string" }
+      }
+    },
+    "FieldValue": {
+      "title": "FieldValue",
+      "description": "A card's value for one typed field; its shape depends on the field's kind.",
+      "anyOf": [
+        { "type": "string" },
+        { "type": "number" },
+        { "$ref": "#/$defs/DateRangeValue" },
+        { "$ref": "#/$defs/LinkValue" }
+      ]
+    },
+    "Dialect": {
+      "title": "Dialect",
+      "description": "SQL dialect of a database schema: `generic`, `postgres`, `mysql` or `sqlite`.",
+      "enum": ["generic", "postgres", "mysql", "sqlite"]
+    },
+    "DbName": {
+      "title": "DbName",
+      "description": "A name in a database schema (table, column, index, enum, schema): 1–128 characters on one line, written as given.",
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128,
+      "pattern": "^[^\\n\\r]+$"
+    },
+    "DbExpr": {
+      "title": "DbExpr",
+      "description": "An SQL expression, written as given (e.g. `now()` or `price >= 0`).",
+      "type": "string",
+      "minLength": 1
+    },
+    "DbNote": {
+      "title": "DbNote",
+      "description": "A short note in plain text (not markdown).",
+      "type": "string"
+    },
+    "DbAction": {
+      "title": "DbAction",
+      "description": "What happens to referencing rows when the referenced row is deleted or its key changes: `cascade`, `restrict`, `set-null`, `set-default` or `no-action`.",
+      "enum": ["cascade", "restrict", "set-null", "set-default", "no-action"]
+    },
+    "Cardinality": {
+      "title": "Cardinality",
+      "description": "How many rows on each side of a relationship, read from → to: `1-1`, `1-n`, `n-1` or `n-n`.",
+      "enum": ["1-1", "1-n", "n-1", "n-n"]
+    },
+    "DbDetail": {
+      "title": "DbDetail",
+      "description": "How much of a table is shown: `names` (name only), `keys` (key columns) or `all` (every column).",
+      "enum": ["names", "keys", "all"]
+    },
+    "ColumnIdList": {
+      "title": "ColumnIdList",
+      "description": "Ids of columns, in key order: at least one, no repeats.",
+      "type": "array",
+      "items": { "$ref": "#/$defs/Id" },
+      "minItems": 1,
+      "uniqueItems": true
+    },
+    "DbColumn": {
+      "title": "DbColumn",
+      "description": "A column of a table (040). Renaming it never changes its id or the indexes and relationships that name it.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "name", "type"],
+      "properties": {
+        "id": {
+          "$ref": "#/$defs/Id",
+          "description": "Unique among every column, index, check, enum and enum value of the deck."
+        },
+        "name": { "$ref": "#/$defs/DbName", "description": "Column name, written as given." },
+        "type": {
+          "$ref": "#/$defs/DbName",
+          "description": "Data type as written, e.g. `varchar`, `timestamptz` or an enum's name."
+        },
+        "size": {
+          "description": "Length, or precision and scale, e.g. `255` or `10,2`. Absent means none.",
+          "type": "string",
+          "pattern": "^[0-9]{1,6}(,[0-9]{1,6})?$"
+        },
+        "pk": {
+          "description": "`true` when the column is part of the primary key; several columns make a composite key, in column order. Absent means false.",
+          "type": "boolean"
+        },
+        "notNull": {
+          "description": "`true` when the column may not be null. Absent means false.",
+          "type": "boolean"
+        },
+        "unique": {
+          "description": "`true` when values must be unique. Absent means false.",
+          "type": "boolean"
+        },
+        "increment": {
+          "description": "`true` for an auto-increment (identity) column. Absent means false.",
+          "type": "boolean"
+        },
+        "default": {
+          "description": "Default value as data (text, number or boolean). Never set together with `defaultExpr`. Absent means none.",
+          "anyOf": [{ "type": "string" }, { "type": "number" }, { "type": "boolean" }]
+        },
+        "defaultExpr": {
+          "$ref": "#/$defs/DbExpr",
+          "description": "Default as an SQL expression, e.g. `now()`. Never set together with `default`."
+        },
+        "check": { "$ref": "#/$defs/DbExpr", "description": "Column check expression." },
+        "enumRef": {
+          "$ref": "#/$defs/Id",
+          "description": "Id of an enum in `enums` whose values the column takes. One that names nothing is kept and reported."
+        },
+        "note": { "$ref": "#/$defs/DbNote", "description": "Note on the column (plain text)." }
+      }
+    },
+    "DbIndexPart": {
+      "title": "DbIndexPart",
+      "description": "One part of an index: the id of a column of the same table, or an expression.",
+      "anyOf": [
+        { "$ref": "#/$defs/Id" },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["expr"],
+          "properties": {
+            "expr": { "$ref": "#/$defs/DbExpr", "description": "Indexed SQL expression." }
+          }
+        }
+      ]
+    },
+    "DbIndex": {
+      "title": "DbIndex",
+      "description": "An index of a table (040).",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "columns"],
+      "properties": {
+        "id": {
+          "$ref": "#/$defs/Id",
+          "description": "Unique among every column, index, check, enum and enum value of the deck."
+        },
+        "name": { "$ref": "#/$defs/DbName", "description": "Index name. Absent means unnamed." },
+        "columns": {
+          "description": "Indexed parts in order: column ids of the same table or `{ expr }`. At least one.",
+          "type": "array",
+          "items": { "$ref": "#/$defs/DbIndexPart" },
+          "minItems": 1
+        },
+        "unique": {
+          "description": "`true` for a unique index. Absent means false.",
+          "type": "boolean"
+        },
+        "method": {
+          "description": "Index method in lower case, e.g. `btree`, `hash` or `gin`. Absent means the dialect's default.",
+          "type": "string",
+          "pattern": "^[a-z][a-z0-9_]{0,31}$"
+        },
+        "note": { "$ref": "#/$defs/DbNote", "description": "Note on the index (plain text)." }
+      }
+    },
+    "DbCheck": {
+      "title": "DbCheck",
+      "description": "A table-level check constraint (040).",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "expr"],
+      "properties": {
+        "id": {
+          "$ref": "#/$defs/Id",
+          "description": "Unique among every column, index, check, enum and enum value of the deck."
+        },
+        "name": {
+          "$ref": "#/$defs/DbName",
+          "description": "Constraint name. Absent means unnamed."
+        },
+        "expr": { "$ref": "#/$defs/DbExpr", "description": "The check expression." }
+      }
+    },
+    "DbEnumValue": {
+      "title": "DbEnumValue",
+      "description": "One value of an enum. Renaming it never changes its id.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "name"],
+      "properties": {
+        "id": {
+          "$ref": "#/$defs/Id",
+          "description": "Unique among every column, index, check, enum and enum value of the deck."
+        },
+        "name": { "$ref": "#/$defs/DbName", "description": "The value, written as given." },
+        "note": { "$ref": "#/$defs/DbNote", "description": "Note on the value (plain text)." }
+      }
+    },
+    "TableDisplay": {
+      "title": "TableDisplay",
+      "description": "How tables draw in this deck (041). Absent keys mean Auto detail and every part shown; the editor writes a hide flag as `true` or removes it.",
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "detail": {
+          "$ref": "#/$defs/DbDetail",
+          "description": "Detail of every table without its own `detail`. Absent means Auto (every column from 90 % zoom)."
+        },
+        "hideTypes": {
+          "type": "boolean",
+          "description": "Hides data types and enum chips on table rows."
+        },
+        "hideNullable": {
+          "type": "boolean",
+          "description": "Hides the nullable marker on table rows."
+        },
+        "hideNotes": { "type": "boolean", "description": "Hides table notes." },
+        "hideIndexes": { "type": "boolean", "description": "Hides the index count footer." }
+      }
+    },
+    "RelationshipDisplay": {
+      "title": "RelationshipDisplay",
+      "description": "How relationships between tables draw in this deck (042). Absent keys mean cardinality ends in crow's foot, labels following the Labels tool; the editor writes `hideEnds` as `true` or removes it, and removes the object when it is empty.",
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "hideEnds": {
+          "type": "boolean",
+          "description": "Relationships (042): draw plain ends instead of cardinality marks."
+        },
+        "labels": {
+          "enum": ["hover", "always", "off"],
+          "description": "Relationships (042): label visibility; absent follows the Labels tool."
+        },
+        "notation": {
+          "enum": ["numeric"],
+          "description": "Relationships (042): 1 / n text instead of crow's foot; absent is crow's foot."
+        }
+      }
+    },
+    "DbEnum": {
+      "title": "DbEnum",
+      "description": "An enum type of the database schema (040). Columns name it by id; it is not drawn.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "name", "values"],
+      "properties": {
+        "id": {
+          "$ref": "#/$defs/Id",
+          "description": "Unique among every column, index, check, enum and enum value of the deck."
+        },
+        "name": { "$ref": "#/$defs/DbName", "description": "Enum name, written as given." },
+        "schema": {
+          "$ref": "#/$defs/DbName",
+          "description": "Namespace, e.g. `public`. Absent means the default one."
+        },
+        "note": { "$ref": "#/$defs/DbNote", "description": "Note on the enum (plain text)." },
+        "color": {
+          "$ref": "#/$defs/ColorRef",
+          "description": "Chip colour on table rows (041): a named colour or a custom hex value. Absent means a neutral chip."
+        },
+        "values": {
+          "description": "The values, in order. May be empty.",
+          "type": "array",
+          "items": { "$ref": "#/$defs/DbEnumValue" }
+        }
+      }
+    },
+    "Node": {
+      "title": "Node",
+      "description": "A component of the system: a card of any type (service, database, queue, warehouse and so on).",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "type", "title"],
+      "properties": {
+        "id": { "$ref": "#/$defs/Id" },
+        "type": { "$ref": "#/$defs/TypeId" },
+        "display": {
+          "description": "Whether the node draws as a card or a shape. Absent = the type's own family. Only types with two forms (decision, database, document) change look; on other types it is kept and ignored.",
+          "enum": ["card", "shape"]
+        },
+        "title": { "$ref": "#/$defs/Text", "description": "Display name." },
+        "level": { "$ref": "#/$defs/Level" },
+        "description": { "description": "What the component does (markdown).", "type": "string" },
+        "owner": { "description": "Owning team or person (free text).", "type": "string" },
+        "tags": { "$ref": "#/$defs/Tags" },
+        "tech": {
+          "description": "Technology, e.g. \"Go · Postgres\". Shown as the subtitle in system views.",
+          "type": "string"
+        },
+        "host": {
+          "description": "Where it runs, e.g. \"EKS eu-west-1\". Shown as the subtitle in infra views.",
+          "type": "string"
+        },
+        "values": {
+          "description": "Values of typed fields (032): field id → value. Text, person, date (`YYYY-MM-DD`) and select / status (option id) values are strings; number and progress (0–100) values are numbers; a date range is `{ from, to }`; a link is `{ url, label? }`. Tech, host and owner keep their own keys and never appear here. A value whose field or option does not exist, or whose shape does not fit its field, is kept and reported. Absent means no values.",
+          "type": "object",
+          "additionalProperties": { "$ref": "#/$defs/FieldValue" }
+        },
+        "icon": {
+          "$ref": "#/$defs/Text",
+          "description": "Icon reference `set:icon` (e.g. `lucide:server`); without a set it means lucide. A reference the app cannot show is kept and the node shows its type icon."
+        },
+        "links": { "$ref": "#/$defs/Links" },
+        "group": { "$ref": "#/$defs/Id", "description": "Id of the group this node belongs to." },
+        "parent": {
+          "$ref": "#/$defs/Id",
+          "description": "Id of the parent node one level up (for drilling down across levels)."
+        },
+        "rules": { "$ref": "#/$defs/IdList", "description": "Ids of rules attached to this node." },
+        "position": {
+          "$ref": "#/$defs/Position",
+          "description": "Canvas position. Views may override it."
+        },
+        "size": {
+          "$ref": "#/$defs/Size",
+          "description": "Card width and height in canvas pixels, shared by every view. When absent, the app uses its default size for the zoom level. Sizes from 120 × 44 to 800 × 600 are supported (a shape from its own minimum, as small as 40 × 24); values outside that range are drawn clamped and reported as a problem."
+        },
+        "style": {
+          "$ref": "#/$defs/Style",
+          "description": "Fill and/or stroke colour. Absent means no colour."
+        },
+        "schema": {
+          "$ref": "#/$defs/DbName",
+          "description": "Tables (`db-table`, 040): namespace, e.g. `public` or `billing`. Absent means the default one. On other types it is kept and ignored."
+        },
+        "columns": {
+          "description": "Tables (`db-table`, 040): the columns, in order. May be empty (a sketch). On other types it is kept and ignored.",
+          "type": "array",
+          "items": { "$ref": "#/$defs/DbColumn" }
+        },
+        "indexes": {
+          "description": "Tables (`db-table`, 040): the indexes. On other types it is kept and ignored.",
+          "type": "array",
+          "items": { "$ref": "#/$defs/DbIndex" }
+        },
+        "checks": {
+          "description": "Tables (`db-table`, 040): table-level check constraints. On other types it is kept and ignored.",
+          "type": "array",
+          "items": { "$ref": "#/$defs/DbCheck" }
+        },
+        "expanded": {
+          "description": "Tables (`db-table`, 040): `true` shows every column instead of the first few. Absent means collapsed to the limit.",
+          "type": "boolean"
+        },
+        "detail": {
+          "$ref": "#/$defs/DbDetail",
+          "description": "Tables (`db-table`, 040): how much of the table is shown. Absent means the deck's default for the zoom level."
+        },
+        "locked": {
+          "description": "Any node type (043): `true` pins the node, so it cannot be moved, resized, edited or deleted until unlocked. Connectors to and from it can still be drawn. Absent means unlocked; `false` is not valid, so unlocking removes the key.",
+          "const": true
+        },
+        "z": {
+          "description": "Stacking rank shared with images (055): a higher rank draws on top. Absent means the node's index in `nodes`. Written only when the deck holds images.",
+          "type": "number"
+        }
+      }
+    },
+    "Group": {
+      "title": "Group",
+      "description": "A named frame that holds nodes and nested groups (domain, bounded context, VPC). Membership is stored on the members (`node.group`, `group.parent`). `position` and `size` place the frame. Older files may omit them, and the app then fits a frame around the members.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "title"],
+      "dependentRequired": { "position": ["size"], "size": ["position"] },
+      "properties": {
+        "id": { "$ref": "#/$defs/Id" },
+        "title": { "$ref": "#/$defs/Text", "description": "Display name." },
+        "description": { "description": "What the group represents (markdown).", "type": "string" },
+        "parent": {
+          "$ref": "#/$defs/Id",
+          "description": "Id of the enclosing group, for nested groups."
+        },
+        "position": {
+          "$ref": "#/$defs/Position",
+          "description": "Top-left corner of the frame on the base canvas. Set together with `size`."
+        },
+        "size": {
+          "$ref": "#/$defs/Size",
+          "description": "Size of the frame on the base canvas. Set together with `position`."
+        },
+        "style": {
+          "$ref": "#/$defs/Style",
+          "description": "Fill and/or stroke colour. Absent means no colour."
+        }
+      }
+    },
+    "Edge": {
+      "title": "Edge",
+      "description": "A connection between two ends, each a node, a group, a sticky or an image.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "from", "to"],
+      "properties": {
+        "id": { "$ref": "#/$defs/Id" },
+        "from": {
+          "$ref": "#/$defs/Id",
+          "description": "Id of the source node, group, sticky or image."
+        },
+        "to": {
+          "$ref": "#/$defs/Id",
+          "description": "Id of the target node, group, sticky or image."
+        },
+        "protocol": { "$ref": "#/$defs/Protocol" },
+        "label": {
+          "description": "Short label, e.g. \"POST /orders\" or \"OrderPlaced · Kafka\".",
+          "type": "string"
+        },
+        "labelAt": {
+          "description": "Where the label sits along the drawn line, as a fraction of its length from the source (0 to 1). When absent, 0.5 (the middle). Shared by every view.",
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1
+        },
+        "direction": {
+          "$ref": "#/$defs/Direction",
+          "description": "`forward` (from → to), `both` or `none`. Absent means `forward`."
+        },
+        "description": { "description": "Details of the connection (markdown).", "type": "string" },
+        "owner": { "description": "Owning team or person (free text).", "type": "string" },
+        "tags": { "$ref": "#/$defs/Tags" },
+        "links": { "$ref": "#/$defs/Links" },
+        "route": {
+          "$ref": "#/$defs/EdgeRoute",
+          "description": "Pinned sides and middle-segment offset, shared by every view. When absent, the connector is routed automatically."
+        },
+        "style": {
+          "$ref": "#/$defs/EdgeStyle",
+          "description": "Line style of the connector, shared by every view. When absent, the default look."
+        },
+        "fromColumns": {
+          "$ref": "#/$defs/ColumnIdList",
+          "description": "Relationships (040): ids of columns of the `from` table, in key order. Paired by position with `toColumns`. On an end that is not a table it is kept and ignored."
+        },
+        "toColumns": {
+          "$ref": "#/$defs/ColumnIdList",
+          "description": "Relationships (040): ids of columns of the `to` table, paired by position with `fromColumns`."
+        },
+        "cardinality": {
+          "$ref": "#/$defs/Cardinality",
+          "description": "Relationships (040): rows on each side, read from → to. Absent means not stated."
+        },
+        "fromOptional": {
+          "description": "Relationships (040): `true` when the `from` side may be absent (zero or …). Absent means false.",
+          "type": "boolean"
+        },
+        "toOptional": {
+          "description": "Relationships (040): `true` when the `to` side may be absent (zero or …). Absent means false.",
+          "type": "boolean"
+        },
+        "onDelete": {
+          "$ref": "#/$defs/DbAction",
+          "description": "Relationships (040): what happens when the referenced row is deleted. Absent means not stated."
+        },
+        "onUpdate": {
+          "$ref": "#/$defs/DbAction",
+          "description": "Relationships (040): what happens when the referenced key changes. Absent means not stated."
+        },
+        "locked": {
+          "description": "`true` pins the connector, so it cannot be reshaped, reconnected or deleted until unlocked. Absent means unlocked; `false` is not valid, so unlocking removes the key.",
+          "const": true
+        }
+      }
+    },
+    "View": {
+      "title": "View",
+      "description": "A saved lens over the same model. Edits in any view change the one model.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "type", "title"],
+      "properties": {
+        "id": { "$ref": "#/$defs/Id" },
+        "type": { "$ref": "#/$defs/ViewType" },
+        "title": { "$ref": "#/$defs/Text", "description": "Display name." },
+        "subtitleField": { "$ref": "#/$defs/SubtitleField" },
+        "feature": {
+          "$ref": "#/$defs/Id",
+          "description": "Id of the feature this view focuses on (feature views)."
+        },
+        "includes": {
+          "$ref": "#/$defs/IdList",
+          "description": "Ids of the nodes shown in this view. Absent means all nodes."
+        },
+        "schemas": {
+          "description": "Schema names whose tables are shown in this view, in addition to the nodes listed in `includes` (048). Non-empty; absent means no schema filter. A name no table uses is kept and shows nothing.",
+          "type": "array",
+          "items": { "$ref": "#/$defs/DbName" },
+          "minItems": 1
+        },
+        "excludeGroups": {
+          "description": "Ids of groups whose members (nested groups included) are hidden in this view. Absent means none.",
+          "type": "array",
+          "items": { "$ref": "#/$defs/Id" },
+          "uniqueItems": true
+        },
+        "excludeKinds": {
+          "description": "Card type ids hidden in this view. Absent means none.",
+          "type": "array",
+          "items": { "$ref": "#/$defs/TypeId" },
+          "uniqueItems": true
+        },
+        "excludeTags": {
+          "description": "Tags that hide a node carrying any of them in this view. Absent means none.",
+          "type": "array",
+          "items": { "$ref": "#/$defs/Text" },
+          "uniqueItems": true
+        },
+        "dimKinds": {
+          "description": "Card type ids drawn dimmed in this view. Absent means none.",
+          "type": "array",
+          "items": { "$ref": "#/$defs/TypeId" },
+          "uniqueItems": true
+        },
+        "positions": {
+          "description": "Per-node position overrides for this view, keyed by node id. Keys must be valid ids.",
+          "type": "object",
+          "propertyNames": { "$ref": "#/$defs/Id" },
+          "additionalProperties": { "$ref": "#/$defs/Position" }
+        },
+        "groupFrames": {
+          "description": "Per-group frame overrides for this view, keyed by group id. Keys must be ids of groups in the file. Absent means the base frames.",
+          "type": "object",
+          "propertyNames": { "$ref": "#/$defs/Id" },
+          "additionalProperties": { "$ref": "#/$defs/Frame" }
+        },
+        "pinned": {
+          "description": "Ids of the nodes that automatic layout must not move in this view. Absent means none.",
+          "type": "array",
+          "items": { "$ref": "#/$defs/Id" },
+          "uniqueItems": true
+        },
+        "collapsed": {
+          "description": "Ids of the groups shown collapsed in this view, and of the derived schema groups (`schema:<name>`, 048). Absent means none.",
+          "type": "array",
+          "items": { "$ref": "#/$defs/Id" },
+          "uniqueItems": true
+        },
+        "detail": {
+          "$ref": "#/$defs/DbDetail",
+          "description": "How much of each table this view shows (048). Absent means the deck's or the table's own setting."
+        }
+      }
+    },
+    "Feature": {
+      "title": "Feature",
+      "description": "A business capability that groups flows.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "title"],
+      "properties": {
+        "id": { "$ref": "#/$defs/Id" },
+        "title": { "$ref": "#/$defs/Text", "description": "Display name." },
+        "description": { "description": "What the feature covers (markdown).", "type": "string" },
+        "owner": { "description": "Owning team or person (free text).", "type": "string" }
+      }
+    },
+    "Flow": {
+      "title": "Flow",
+      "description": "An ordered path of steps over existing edges.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "title", "steps"],
+      "properties": {
+        "id": { "$ref": "#/$defs/Id" },
+        "title": { "$ref": "#/$defs/Text", "description": "Display name." },
+        "feature": {
+          "$ref": "#/$defs/Id",
+          "description": "Id of the feature this flow belongs to."
+        },
+        "description": { "description": "What the flow does (markdown).", "type": "string" },
+        "trigger": { "description": "What starts the flow.", "type": "string" },
+        "outcome": { "description": "The result when the flow completes.", "type": "string" },
+        "owner": { "description": "Owning team or person (free text).", "type": "string" },
+        "tags": { "$ref": "#/$defs/Tags" },
+        "links": { "$ref": "#/$defs/Links" },
+        "branches": {
+          "description": "Alternative paths after the branch step, in order (index 0 is alternative \"a\"). The branch step is derived: the last main-path step. One level only.",
+          "type": "array",
+          "items": { "$ref": "#/$defs/Branch" }
+        },
+        "steps": {
+          "description": "Steps in order: main-path steps first, then each branch's steps grouped in `branches` order. The same edge may appear in several steps.",
+          "type": "array",
+          "items": { "$ref": "#/$defs/Step" }
+        }
+      }
+    },
+    "Step": {
+      "title": "Step",
+      "description": "One hop of a flow over an existing edge.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "edge"],
+      "properties": {
+        "id": { "$ref": "#/$defs/Id" },
+        "edge": { "$ref": "#/$defs/Id", "description": "Id of the edge this step travels." },
+        "branch": {
+          "$ref": "#/$defs/Id",
+          "description": "Id of the branch of this flow the step belongs to. Absent: main path."
+        },
+        "title": {
+          "description": "Step name. When absent, the edge label is shown.",
+          "type": "string"
+        },
+        "condition": {
+          "description": "When this step happens, e.g. \"payment authorized\".",
+          "type": "string"
+        },
+        "sla": { "description": "Target time, e.g. \"< 300 ms\" or \"24h\".", "type": "string" },
+        "description": { "description": "What happens in this step (markdown).", "type": "string" },
+        "payload": { "description": "The data carried by this step.", "type": "string" },
+        "notes": { "description": "Extra notes (markdown).", "type": "string" },
+        "owner": { "description": "Owning team or person (free text).", "type": "string" },
+        "tags": { "$ref": "#/$defs/Tags" },
+        "links": { "$ref": "#/$defs/Links" },
+        "rules": { "$ref": "#/$defs/IdList", "description": "Ids of rules applied at this step." },
+        "ruleInputs": {
+          "description": "Sample inputs per attached rule: rule id → input column id → value. Keys must be valid ids.",
+          "type": "object",
+          "propertyNames": { "$ref": "#/$defs/Id" },
+          "additionalProperties": {
+            "description": "Sample values keyed by input column id.",
+            "type": "object",
+            "propertyNames": { "$ref": "#/$defs/Id" },
+            "additionalProperties": { "type": "string" }
+          }
+        },
+        "touches": {
+          "description": "Tables, and optionally columns, this step reads or writes (049). Absent means none. No two entries share the same table and column.",
+          "type": "array",
+          "items": { "$ref": "#/$defs/Touch" }
+        }
+      }
+    },
+    "Touch": {
+      "title": "Touch",
+      "description": "A table, or one column of it, that a flow step reads or writes (049).",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["table", "access"],
+      "properties": {
+        "table": { "$ref": "#/$defs/Id", "description": "Id of the table node." },
+        "column": {
+          "$ref": "#/$defs/Id",
+          "description": "Id of one column of that table. Absent: the whole table."
+        },
+        "access": {
+          "description": "Whether the step reads or writes it.",
+          "enum": ["read", "write"]
+        }
+      }
+    },
+    "Branch": {
+      "title": "Branch",
+      "description": "An alternative path of a flow, forking after its last main-path step.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "label", "condition"],
+      "properties": {
+        "id": { "$ref": "#/$defs/Id" },
+        "label": {
+          "description": "Short name, e.g. \"payment failed\". May be empty while the branch is being authored.",
+          "type": "string"
+        },
+        "condition": {
+          "description": "When this branch is taken, e.g. \"payment.status == 'declined'\". May be empty while the branch is being authored.",
+          "type": "string"
+        },
+        "errorPath": {
+          "description": "True when this branch is an error path (drawn dashed with an error icon). Absent means false.",
+          "type": "boolean"
+        },
+        "description": {
+          "description": "What happens on this branch (markdown).",
+          "type": "string"
+        }
+      }
+    },
+    "RuleColumn": {
+      "title": "RuleColumn",
+      "description": "An input or output column of a decision table.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "label"],
+      "properties": {
+        "id": { "$ref": "#/$defs/Id" },
+        "label": { "$ref": "#/$defs/Text", "description": "Column header, e.g. \"Weight (kg)\"." }
+      }
+    },
+    "RuleRow": {
+      "title": "RuleRow",
+      "description": "A decision-table row. `when` has exactly one cell per input column and `then` exactly one cell per output column (checked by the app).",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "when", "then"],
+      "properties": {
+        "id": { "$ref": "#/$defs/Id" },
+        "when": {
+          "description": "Condition cells, one per input column, in column order. Text such as \"≤ 5\", \"= express\" or \"Any\"; empty means any value.",
+          "type": "array",
+          "items": { "type": "string" }
+        },
+        "then": {
+          "description": "Result cells, one per output column, in column order.",
+          "type": "array",
+          "items": { "type": "string" }
+        }
+      }
+    },
+    "Rule": {
+      "title": "Rule",
+      "description": "A business rule as a decision table. Its id is its key in `rules`.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["title", "hitPolicy", "inputs", "outputs", "rows"],
+      "properties": {
+        "title": { "$ref": "#/$defs/Text", "description": "Display name." },
+        "description": { "description": "What the rule decides (markdown).", "type": "string" },
+        "hitPolicy": { "$ref": "#/$defs/HitPolicy" },
+        "inputs": {
+          "description": "Input (condition) columns, in order.",
+          "type": "array",
+          "items": { "$ref": "#/$defs/RuleColumn" }
+        },
+        "outputs": {
+          "description": "Output (result) columns, in order.",
+          "type": "array",
+          "items": { "$ref": "#/$defs/RuleColumn" }
+        },
+        "rows": {
+          "description": "Rows, in evaluation order.",
+          "type": "array",
+          "items": { "$ref": "#/$defs/RuleRow" }
+        }
+      }
+    },
+    "Sticky": {
+      "title": "Sticky",
+      "description": "A sticky note, placed on the canvas by `position`. A connector can end on it. Older files may place it with the deprecated `anchor` instead; such files still open.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "text"],
+      "properties": {
+        "id": { "$ref": "#/$defs/Id" },
+        "text": { "description": "Note text (markdown).", "type": "string" },
+        "color": { "$ref": "#/$defs/StickyColor", "description": "Absent means `amber`." },
+        "anchor": {
+          "$ref": "#/$defs/Id",
+          "description": "Deprecated: notes are no longer pinned to objects. Kept so older files open: on load the note becomes a free note at the point it was shown at, and the key is dropped. Never written by the app."
+        },
+        "position": {
+          "$ref": "#/$defs/Position",
+          "description": "Canvas position of the note. In an older file with the deprecated `anchor` on a node, the offset from that node."
+        },
+        "collapsed": {
+          "type": "boolean",
+          "description": "True when the note is shown as one line. Absent means expanded."
+        },
+        "showInFlows": {
+          "type": "boolean",
+          "description": "True when the note stays at full strength during flow playback. Absent means it is dimmed while a flow plays."
+        },
+        "size": {
+          "$ref": "#/$defs/Size",
+          "description": "Note box in canvas pixels. Absent means 200 × 200. Ignored while collapsed."
+        },
+        "fontSize": {
+          "description": "Fixed text size in pixels. Absent means Auto: the size follows the note's size and text.",
+          "type": "integer",
+          "enum": [12, 14, 16, 20, 24, 32]
+        },
+        "align": {
+          "description": "Text alignment. Absent means centre.",
+          "type": "string",
+          "enum": ["left", "center", "right"]
+        },
+        "tags": { "$ref": "#/$defs/Tags" },
+        "locked": {
+          "description": "`true` locks the note in place, so it cannot be moved, resized or deleted until unlocked. Absent means unlocked; `false` is not valid, so unlocking removes the key.",
+          "const": true
+        }
+      },
+      "anyOf": [
+        { "properties": { "anchor": true }, "required": ["anchor"] },
+        { "properties": { "position": true }, "required": ["position"] }
+      ]
+    },
+    "AssetId": {
+      "title": "AssetId",
+      "description": "Picture id: the lowercase SHA-256 of the stored bytes, as 64 hex characters.",
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "AssetType": {
+      "title": "AssetType",
+      "description": "Media type of a stored picture, detected from its content.",
+      "enum": ["image/png", "image/jpeg", "image/webp", "image/gif", "image/svg+xml", "image/avif"]
+    },
+    "Asset": {
+      "title": "Asset",
+      "description": "A stored picture: what it is, and its bytes as base64 (at most 5 MiB decoded). The app checks that `data` decodes to `bytes` bytes and hashes to the key it is stored under; a picture that fails is shown as missing.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["type", "bytes", "width", "height", "name", "data"],
+      "properties": {
+        "type": { "$ref": "#/$defs/AssetType" },
+        "bytes": {
+          "description": "Stored size in bytes.",
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 5242880
+        },
+        "width": {
+          "description": "Natural width in pixels (an SVG: its width or viewBox, else 300).",
+          "type": "integer",
+          "minimum": 1
+        },
+        "height": {
+          "description": "Natural height in pixels (an SVG: its height or viewBox, else 150).",
+          "type": "integer",
+          "minimum": 1
+        },
+        "name": {
+          "description": "Original file name, shown to the person only. Never used as an id.",
+          "type": "string"
+        },
+        "data": {
+          "description": "The picture bytes, base64 without a `data:` prefix.",
+          "type": "string",
+          "pattern": "^[A-Za-z0-9+/]*={0,2}$"
+        }
+      }
+    },
+    "Image": {
+      "title": "Image",
+      "description": "A picture on the canvas. A connector can end on it and it can belong to a group. It shares the stacking order (`z`) with cards.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "asset", "position", "size"],
+      "properties": {
+        "id": { "$ref": "#/$defs/Id" },
+        "asset": {
+          "$ref": "#/$defs/AssetId",
+          "description": "Picture id; must be a key of `assets`."
+        },
+        "position": {
+          "$ref": "#/$defs/Position",
+          "description": "Top-left corner on the canvas. Relative to the group when `group` is set, as for cards."
+        },
+        "size": {
+          "$ref": "#/$defs/Size",
+          "description": "Size on the canvas in pixels, at least 32 × 32. The app keeps the picture's aspect ratio by default."
+        },
+        "z": {
+          "description": "Stacking rank shared with cards: a higher rank draws on top. Absent means the image's index in `images`. Ties draw cards before images.",
+          "type": "number"
+        },
+        "group": { "$ref": "#/$defs/Id", "description": "Id of the group this image belongs to." },
+        "alt": {
+          "description": "Alternative text: the image's accessible name. Plain text.",
+          "type": "string"
+        },
+        "caption": {
+          "description": "Plain text shown under the picture. Absent means no caption.",
+          "type": "string"
+        },
+        "locked": {
+          "description": "`true` pins the image, so it cannot be moved, resized, restacked or deleted until unlocked. Absent means unlocked; `false` is not valid, so unlocking removes the key.",
+          "const": true
+        },
+        "crop": {
+          "$ref": "#/$defs/Crop",
+          "description": "The visible part of the picture (057). Absent means the whole picture. `size` and `position` are the box of this visible part."
+        },
+        "flipX": {
+          "description": "`true` mirrors the picture left to right (057). Absent means not flipped; `false` is not valid, so unflipping removes the key.",
+          "const": true
+        },
+        "flipY": {
+          "description": "`true` mirrors the picture top to bottom (057). Absent means not flipped; `false` is not valid, so unflipping removes the key.",
+          "const": true
+        }
+      }
+    },
+    "Crop": {
+      "title": "Crop",
+      "description": "A rectangle of a picture as fractions of its natural size (0 to 1), in the picture's own, unflipped coordinates. `x + width` and `y + height` should not exceed 1; a crop past the picture edge is trimmed when the deck opens.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["x", "y", "width", "height"],
+      "properties": {
+        "x": {
+          "description": "Left edge as a fraction of the picture width.",
+          "type": "number",
+          "minimum": 0,
+          "exclusiveMaximum": 1
+        },
+        "y": {
+          "description": "Top edge as a fraction of the picture height.",
+          "type": "number",
+          "minimum": 0,
+          "exclusiveMaximum": 1
+        },
+        "width": {
+          "description": "Width as a fraction of the picture width.",
+          "type": "number",
+          "exclusiveMinimum": 0,
+          "maximum": 1
+        },
+        "height": {
+          "description": "Height as a fraction of the picture height.",
+          "type": "number",
+          "exclusiveMinimum": 0,
+          "maximum": 1
+        }
+      }
+    }
+  }
+}

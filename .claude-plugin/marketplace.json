@@ -1,0 +1,15 @@
+{
+  "name": "sododeck",
+  "metadata": {
+    "description": "The Sododeck deck skill: playable architecture and flow diagrams from a description or your code."
+  },
+  "owner": {
+    "name": "Sododeck"
+  },
+  "plugins": [
+    {
+      "name": "sododeck-diagram",
+      "source": "./"
+    }
+  ]
+}

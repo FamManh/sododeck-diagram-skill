@@ -1,0 +1,190 @@
+{
+  "$schema": "https://sododeck.com/schema/v1.json",
+  "version": 1,
+  "name": "E-commerce checkout",
+  "description": "How an order is placed and paid for.",
+  "nodes": [
+    {
+      "id": "web",
+      "type": "client",
+      "title": "Web Shop",
+      "tech": "React",
+      "position": {
+        "x": 0,
+        "y": 0
+      }
+    },
+    {
+      "id": "gateway",
+      "type": "gateway",
+      "title": "API Gateway",
+      "group": "shop",
+      "position": {
+        "x": 300,
+        "y": 0
+      }
+    },
+    {
+      "id": "orders",
+      "type": "service",
+      "title": "Order Service",
+      "description": "Creates orders, asks the payment provider to charge, and publishes `OrderPaid` on Kafka.",
+      "tech": "Node.js",
+      "group": "shop",
+      "position": {
+        "x": 600,
+        "y": 0
+      }
+    },
+    {
+      "id": "payments",
+      "type": "external",
+      "title": "Payment Provider",
+      "position": {
+        "x": 900,
+        "y": -175
+      }
+    },
+    {
+      "id": "orders-db",
+      "type": "database",
+      "title": "Orders DB",
+      "tech": "Postgres",
+      "group": "shop",
+      "position": {
+        "x": 600,
+        "y": 175
+      }
+    },
+    {
+      "id": "notify",
+      "type": "service",
+      "title": "Notification Service",
+      "group": "shop",
+      "position": {
+        "x": 900,
+        "y": 175
+      }
+    }
+  ],
+  "groups": [
+    {
+      "id": "shop",
+      "title": "Our services",
+      "style": {
+        "fill": "blue"
+      }
+    }
+  ],
+  "edges": [
+    {
+      "id": "web-gateway",
+      "from": "web",
+      "to": "gateway",
+      "protocol": "http",
+      "label": "POST /checkout"
+    },
+    {
+      "id": "gateway-orders",
+      "from": "gateway",
+      "to": "orders",
+      "protocol": "http",
+      "label": "create order"
+    },
+    {
+      "id": "orders-payments",
+      "from": "orders",
+      "to": "payments",
+      "protocol": "http",
+      "label": "charge card"
+    },
+    {
+      "id": "payments-orders",
+      "from": "payments",
+      "to": "orders",
+      "protocol": "http",
+      "label": "charge result"
+    },
+    {
+      "id": "orders-db-write",
+      "from": "orders",
+      "to": "orders-db",
+      "protocol": "sql",
+      "label": "insert order",
+      "style": {
+        "dash": "dashed",
+        "width": 1.5
+      }
+    },
+    {
+      "id": "orders-notify",
+      "from": "orders",
+      "to": "notify",
+      "protocol": "event",
+      "label": "OrderPaid · Kafka"
+    }
+  ],
+  "views": [],
+  "features": [
+    {
+      "id": "checkout",
+      "title": "Checkout"
+    }
+  ],
+  "flows": [
+    {
+      "id": "checkout",
+      "title": "Checkout",
+      "feature": "checkout",
+      "trigger": "Customer presses Pay",
+      "outcome": "Order is paid and the customer gets a confirmation",
+      "steps": [
+        {
+          "id": "submit",
+          "edge": "web-gateway",
+          "title": "Submit cart",
+          "sla": "< 300 ms"
+        },
+        {
+          "id": "create",
+          "edge": "gateway-orders",
+          "title": "Create order",
+          "description": "Order Service also inserts the order (the dashed connector to Orders DB): a side write, so it is not a step."
+        },
+        {
+          "id": "charge",
+          "edge": "orders-payments",
+          "title": "Charge card",
+          "sla": "< 2 s",
+          "payload": "{ \"orderId\": \"o_123\", \"amount\": 4990, \"currency\": \"EUR\" }"
+        },
+        {
+          "id": "charged",
+          "edge": "payments-orders",
+          "title": "Card charged"
+        },
+        {
+          "id": "confirm",
+          "edge": "orders-notify",
+          "title": "Publish OrderPaid, send email"
+        }
+      ]
+    }
+  ],
+  "rules": {},
+  "stickies": [
+    {
+      "id": "note-retry",
+      "text": "Open question: is a failed charge retried, or does the customer press Pay again?",
+      "color": "amber",
+      "position": {
+        "x": 0,
+        "y": 200
+      },
+      "size": {
+        "width": 240,
+        "height": 120
+      }
+    }
+  ]
+}

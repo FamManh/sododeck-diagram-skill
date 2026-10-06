@@ -1,0 +1,1120 @@
+{
+  "$schema": "https://sododeck.com/schema/v1.json",
+  "version": 1,
+  "name": "Nightly analytics pipeline",
+  "description": "A fictional nightly batch pipeline: three sources land in an object store, are staged, cleaned and modelled in the Data warehouse, checked for quality, published to marts, and served to BI dashboards and back to the CRM.",
+  "nodes": [
+    {
+      "id": "scheduler",
+      "type": "service",
+      "title": "Workflow scheduler",
+      "tech": "DAG scheduler",
+      "description": "Runs the `nightly_full` DAG at **02:00 UTC**. Starts the orders extract, waits on sensors for the events and CRM partitions, then runs staging only when all three sources have landed. Task retries: 3, back-off 5 min.",
+      "group": "orch",
+      "position": {
+        "x": 0,
+        "y": 0
+      }
+    },
+    {
+      "id": "run-meta",
+      "type": "database",
+      "title": "Run metadata store",
+      "tech": "Postgres",
+      "description": "Run state, task attempts, per-source watermarks (`orders.updated_at`, `events.event_time`) and the backfill log. Every job reads its watermark here at start and writes it back on success.",
+      "group": "orch",
+      "position": {
+        "x": 300,
+        "y": 0
+      }
+    },
+    {
+      "id": "planner",
+      "type": "service",
+      "title": "Backfill planner",
+      "tech": "Python worker",
+      "description": "Consumes `partition.landed` events. When a partition lands **behind** the events watermark it applies the *Backfill window* rule and, if allowed, triggers a scoped re-run of staging for the late dates only.",
+      "rules": [
+        "backfill-window"
+      ],
+      "group": "orch",
+      "position": {
+        "x": 600,
+        "y": 0
+      }
+    },
+    {
+      "id": "orders-replica",
+      "type": "database",
+      "title": "Orders DB replica",
+      "tech": "Postgres read replica",
+      "description": "Read replica of the orders database. Tables: `orders`, `order_items`, `refunds`.",
+      "group": "sources",
+      "position": {
+        "x": 0,
+        "y": 300
+      }
+    },
+    {
+      "id": "producers",
+      "type": "service",
+      "title": "Product event producers",
+      "tech": "Web + mobile backends",
+      "description": "Emit clickstream and product events (`page_view`, `add_to_cart`, `checkout_started`). Mobile clients buffer offline, so events can arrive **days late**.",
+      "group": "sources",
+      "position": {
+        "x": 0,
+        "y": 450
+      }
+    },
+    {
+      "id": "crm",
+      "type": "external",
+      "title": "CRM",
+      "tech": "SaaS CRM",
+      "description": "Drops a nightly accounts export on SFTP at ~01:30 UTC and receives the reverse-ETL bulk upserts. Bulk API quota: 10k rows/min.",
+      "group": "sources",
+      "position": {
+        "x": 0,
+        "y": 1050
+      }
+    },
+    {
+      "id": "x-orders",
+      "type": "component",
+      "title": "Extract orders",
+      "tech": "Python · incremental",
+      "description": "Incremental pull: `WHERE updated_at > :watermark`, batches of 50k rows, written as Parquet. ~1.2 M rows/night.",
+      "group": "ingest",
+      "position": {
+        "x": 300,
+        "y": 300
+      }
+    },
+    {
+      "id": "x-events",
+      "type": "queue",
+      "title": "Events sink consumer",
+      "tech": "Kafka consumer group",
+      "description": "Consumes `product.events` continuously and flushes hourly files partitioned by **event date** (not arrival date), so late events land in past partitions.",
+      "group": "ingest",
+      "position": {
+        "x": 300,
+        "y": 450
+      }
+    },
+    {
+      "id": "x-crm",
+      "type": "component",
+      "title": "Fetch CRM export",
+      "tech": "SFTP sensor + loader",
+      "description": "Sensor waits for `accounts_YYYYMMDD.csv` (timeout 03:30 UTC), checks the row count trailer, converts to Parquet.",
+      "group": "ingest",
+      "position": {
+        "x": 300,
+        "y": 600
+      }
+    },
+    {
+      "id": "landing",
+      "type": "database",
+      "title": "Landing zone",
+      "tech": "Object store · Parquet",
+      "description": "Raw, immutable files under `raw/<source>/dt=YYYY-MM-DD/`. Retained 90 days. Every new partition emits `partition.landed`.",
+      "group": "ingest",
+      "position": {
+        "x": 600,
+        "y": 450
+      }
+    },
+    {
+      "id": "stage",
+      "type": "component",
+      "title": "Stage raw tables",
+      "tech": "SQL models",
+      "description": "Loads landed partitions into `staging.*` in the Data warehouse with typed columns and load metadata (`_loaded_at`, `_run_id`).",
+      "group": "transform",
+      "position": {
+        "x": 900,
+        "y": 450
+      }
+    },
+    {
+      "id": "clean",
+      "type": "component",
+      "title": "Clean and dedupe",
+      "tech": "SQL models",
+      "description": "Deduplicates on natural keys (latest `updated_at` wins), normalises currencies to EUR, drops test accounts, masks PII columns.",
+      "group": "transform",
+      "position": {
+        "x": 1200,
+        "y": 450
+      }
+    },
+    {
+      "id": "dims",
+      "type": "component",
+      "title": "Build dimensional models",
+      "tech": "SQL models",
+      "description": "Builds `dim_customer` (SCD type 2), `dim_product`, `fct_orders`, `fct_events` in a shadow schema `core_next`.",
+      "group": "transform",
+      "position": {
+        "x": 1500,
+        "y": 450
+      }
+    },
+    {
+      "id": "dq",
+      "type": "component",
+      "title": "Run quality checks",
+      "tech": "Declarative test suite",
+      "description": "~140 checks on `core_next`: schema, uniqueness, not-null, accepted values, freshness and row-volume deltas versus the 7-day median.",
+      "group": "quality",
+      "position": {
+        "x": 1800,
+        "y": 450
+      }
+    },
+    {
+      "id": "q-mgr",
+      "type": "service",
+      "title": "Quarantine manager",
+      "tech": "Python worker",
+      "description": "Applies the *Data quality severity* rule to every failed check. Moves failing rows (warn) or the whole batch (block) into the quarantine schema, marks the run in the Run metadata store, and raises an alert.",
+      "rules": [
+        "dq-severity"
+      ],
+      "group": "quality",
+      "position": {
+        "x": 1800,
+        "y": 600
+      }
+    },
+    {
+      "id": "quarantine",
+      "type": "database",
+      "title": "Quarantine schema",
+      "tech": "Data warehouse schema",
+      "description": "`quarantine.<model>__<run_id>` tables with the failing rows and the check that caught them. Kept 30 days for triage.",
+      "group": "quality",
+      "position": {
+        "x": 1800,
+        "y": 900
+      }
+    },
+    {
+      "id": "publish",
+      "type": "component",
+      "title": "Publish marts",
+      "tech": "Schema swap",
+      "description": "Atomically swaps `core_next` into the mart schemas (`ALTER SCHEMA … RENAME` in one transaction), so readers never see a half-built mart.",
+      "group": "marts",
+      "position": {
+        "x": 2100,
+        "y": 450
+      }
+    },
+    {
+      "id": "m-sales",
+      "type": "database",
+      "title": "Sales mart",
+      "tech": "Data warehouse",
+      "description": "Revenue, orders, refunds by day, channel and region.",
+      "group": "marts",
+      "position": {
+        "x": 2400,
+        "y": 300
+      }
+    },
+    {
+      "id": "m-product",
+      "type": "database",
+      "title": "Product mart",
+      "tech": "Data warehouse",
+      "description": "Funnels, feature adoption and retention cohorts built from `fct_events`.",
+      "group": "marts",
+      "position": {
+        "x": 2400,
+        "y": 450
+      }
+    },
+    {
+      "id": "m-customer",
+      "type": "database",
+      "title": "Customer mart",
+      "tech": "Data warehouse",
+      "description": "One row per account: lifetime value, health score, churn risk, last active date.",
+      "group": "marts",
+      "position": {
+        "x": 2400,
+        "y": 600
+      }
+    },
+    {
+      "id": "bi-refresh",
+      "type": "component",
+      "title": "Dashboard extract refresh",
+      "tech": "BI extract cache",
+      "description": "Rebuilds dashboard extracts from the marts. Full refresh ~25 min.",
+      "group": "bi",
+      "position": {
+        "x": 2700,
+        "y": 300
+      }
+    },
+    {
+      "id": "dashboards",
+      "type": "client",
+      "title": "BI dashboards",
+      "tech": "BI tool",
+      "description": "Exec daily, Growth funnel, Finance close. Target: fresh by **06:00 UTC**.",
+      "group": "bi",
+      "position": {
+        "x": 3000,
+        "y": 300
+      }
+    },
+    {
+      "id": "rev-etl",
+      "type": "service",
+      "title": "Reverse-ETL sync",
+      "tech": "Python worker",
+      "description": "Diffs the Customer mart against the last synced snapshot and upserts only changed accounts to the CRM (`health_score`, `ltv_eur`, `churn_risk`).",
+      "group": "activation",
+      "position": {
+        "x": 2700,
+        "y": 1050
+      }
+    },
+    {
+      "id": "alerting",
+      "type": "service",
+      "title": "Alerting",
+      "tech": "Alert router",
+      "description": "Routes `dq.alerts` by severity: `warn` posts to the data-quality channel, `block` opens a ticket, `page` pages the data on-call.",
+      "group": "oncall",
+      "position": {
+        "x": 2100,
+        "y": 900
+      }
+    }
+  ],
+  "groups": [
+    {
+      "id": "orch",
+      "title": "Orchestration",
+      "style": {
+        "fill": "violet"
+      }
+    },
+    {
+      "id": "sources",
+      "title": "Sources",
+      "style": {
+        "fill": "slate"
+      }
+    },
+    {
+      "id": "ingest",
+      "title": "Ingestion",
+      "style": {
+        "fill": "blue"
+      }
+    },
+    {
+      "id": "transform",
+      "title": "Transformation",
+      "style": {
+        "fill": "teal"
+      }
+    },
+    {
+      "id": "quality",
+      "title": "Data quality",
+      "style": {
+        "fill": "amber"
+      }
+    },
+    {
+      "id": "marts",
+      "title": "Warehouse marts",
+      "style": {
+        "fill": "indigo"
+      }
+    },
+    {
+      "id": "oncall",
+      "title": "On-call",
+      "style": {
+        "fill": "red"
+      }
+    },
+    {
+      "id": "bi",
+      "title": "BI",
+      "style": {
+        "fill": "green"
+      }
+    },
+    {
+      "id": "activation",
+      "title": "Activation",
+      "style": {
+        "fill": "pink"
+      }
+    }
+  ],
+  "edges": [
+    {
+      "id": "sched-xorders",
+      "from": "scheduler",
+      "to": "x-orders",
+      "protocol": "other",
+      "label": "start nightly_full"
+    },
+    {
+      "id": "sched-meta",
+      "from": "scheduler",
+      "to": "run-meta",
+      "protocol": "sql",
+      "label": "run + task state",
+      "style": {
+        "dash": "dashed",
+        "width": 1.5
+      }
+    },
+    {
+      "id": "planner-meta",
+      "from": "planner",
+      "to": "run-meta",
+      "protocol": "sql",
+      "label": "log backfill run",
+      "style": {
+        "dash": "dashed",
+        "width": 1.5
+      }
+    },
+    {
+      "id": "replica-xorders",
+      "from": "orders-replica",
+      "to": "x-orders",
+      "protocol": "sql",
+      "label": "SELECT updated_at > wm",
+      "style": {
+        "dash": "dashed",
+        "width": 1.5
+      }
+    },
+    {
+      "id": "producers-xevents",
+      "from": "producers",
+      "to": "x-events",
+      "protocol": "event",
+      "label": "product.events · Kafka"
+    },
+    {
+      "id": "crm-xcrm",
+      "from": "crm",
+      "to": "x-crm",
+      "protocol": "other",
+      "label": "accounts CSV · SFTP"
+    },
+    {
+      "id": "xorders-landing",
+      "from": "x-orders",
+      "to": "landing",
+      "protocol": "other",
+      "label": "PUT raw/orders/"
+    },
+    {
+      "id": "xevents-landing",
+      "from": "x-events",
+      "to": "landing",
+      "protocol": "other",
+      "label": "PUT raw/events/"
+    },
+    {
+      "id": "xcrm-landing",
+      "from": "x-crm",
+      "to": "landing",
+      "protocol": "other",
+      "label": "PUT raw/crm/"
+    },
+    {
+      "id": "landing-stage",
+      "from": "landing",
+      "to": "stage",
+      "protocol": "sql",
+      "label": "COPY INTO staging"
+    },
+    {
+      "id": "landing-planner",
+      "from": "landing",
+      "to": "planner",
+      "protocol": "event",
+      "label": "partition.landed · Kafka"
+    },
+    {
+      "id": "planner-stage",
+      "from": "planner",
+      "to": "stage",
+      "protocol": "other",
+      "label": "re-stage dt range"
+    },
+    {
+      "id": "stage-clean",
+      "from": "stage",
+      "to": "clean",
+      "protocol": "sql",
+      "label": "staging.*"
+    },
+    {
+      "id": "clean-dims",
+      "from": "clean",
+      "to": "dims",
+      "protocol": "sql",
+      "label": "clean.*"
+    },
+    {
+      "id": "dims-dq",
+      "from": "dims",
+      "to": "dq",
+      "protocol": "sql",
+      "label": "core_next built"
+    },
+    {
+      "id": "dq-publish",
+      "from": "dq",
+      "to": "publish",
+      "protocol": "other",
+      "label": "all checks passed"
+    },
+    {
+      "id": "dq-qmgr",
+      "from": "dq",
+      "to": "q-mgr",
+      "protocol": "other",
+      "label": "failed checks"
+    },
+    {
+      "id": "qmgr-quarantine",
+      "from": "q-mgr",
+      "to": "quarantine",
+      "protocol": "sql",
+      "label": "move failing rows",
+      "style": {
+        "dash": "dashed",
+        "width": 1.5
+      }
+    },
+    {
+      "id": "qmgr-publish",
+      "from": "q-mgr",
+      "to": "publish",
+      "protocol": "event",
+      "label": "dq.released · Kafka"
+    },
+    {
+      "id": "qmgr-alerting",
+      "from": "q-mgr",
+      "to": "alerting",
+      "protocol": "event",
+      "label": "dq.alerts · Kafka"
+    },
+    {
+      "id": "publish-msales",
+      "from": "publish",
+      "to": "m-sales",
+      "protocol": "sql",
+      "label": "swap sales"
+    },
+    {
+      "id": "publish-mproduct",
+      "from": "publish",
+      "to": "m-product",
+      "protocol": "sql",
+      "label": "swap product"
+    },
+    {
+      "id": "publish-mcustomer",
+      "from": "publish",
+      "to": "m-customer",
+      "protocol": "sql",
+      "label": "swap customer"
+    },
+    {
+      "id": "msales-bi",
+      "from": "m-sales",
+      "to": "bi-refresh",
+      "protocol": "sql",
+      "label": "refresh extracts"
+    },
+    {
+      "id": "mproduct-bi",
+      "from": "m-product",
+      "to": "bi-refresh",
+      "protocol": "sql",
+      "label": "refresh extracts"
+    },
+    {
+      "id": "bi-dashboards",
+      "from": "bi-refresh",
+      "to": "dashboards",
+      "protocol": "http",
+      "label": "publish extracts"
+    },
+    {
+      "id": "mcustomer-revetl",
+      "from": "m-customer",
+      "to": "rev-etl",
+      "protocol": "sql",
+      "label": "changed accounts"
+    },
+    {
+      "id": "revetl-crm",
+      "from": "rev-etl",
+      "to": "crm",
+      "protocol": "http",
+      "label": "POST /bulk/accounts"
+    },
+    {
+      "id": "crm-revetl",
+      "from": "crm",
+      "to": "rev-etl",
+      "protocol": "http",
+      "label": "bulk job result"
+    },
+    {
+      "id": "note-lag-tie",
+      "from": "note-lag",
+      "to": "orders-replica",
+      "protocol": "other",
+      "style": {
+        "dash": "dashed",
+        "width": 1.5
+      }
+    },
+    {
+      "id": "note-quota-tie",
+      "from": "note-quota",
+      "to": "rev-etl",
+      "protocol": "other",
+      "style": {
+        "dash": "dashed",
+        "width": 1.5
+      }
+    }
+  ],
+  "views": [],
+  "features": [
+    {
+      "id": "nightly",
+      "title": "Nightly"
+    },
+    {
+      "id": "recovery",
+      "title": "Recovery"
+    },
+    {
+      "id": "activation",
+      "title": "Activation"
+    }
+  ],
+  "flows": [
+    {
+      "id": "nightly-run",
+      "title": "Nightly full run",
+      "feature": "nightly",
+      "trigger": "Scheduler fires `nightly_full` at 02:00 UTC",
+      "outcome": "Every mart is swapped in one transaction and dashboards show yesterday’s numbers by 06:00 UTC",
+      "steps": [
+        {
+          "id": "start",
+          "edge": "sched-xorders",
+          "title": "Start nightly DAG",
+          "description": "The scheduler also starts the CRM and events sensors; this flow follows the orders branch. Run state is written to the Run metadata store (dashed).",
+          "payload": "{ \"dag\": \"nightly_full\", \"run_id\": \"nf_2026-10-05\", \"logical_date\": \"2026-10-05\" }"
+        },
+        {
+          "id": "land",
+          "edge": "xorders-landing",
+          "title": "Land orders partition",
+          "sla": "< 20 min",
+          "description": "Reads the replica since the stored watermark (dashed side read).",
+          "payload": "{ \"path\": \"raw/orders/dt=2026-10-05/\", \"files\": 24, \"rows\": 1184320, \"watermark\": \"2026-10-05T23:59:58Z\" }"
+        },
+        {
+          "id": "stage",
+          "edge": "landing-stage",
+          "title": "Load into staging",
+          "condition": "orders, events and CRM partitions all landed"
+        },
+        {
+          "id": "clean",
+          "edge": "stage-clean",
+          "title": "Clean and dedupe"
+        },
+        {
+          "id": "model",
+          "edge": "clean-dims",
+          "title": "Build star schema",
+          "sla": "< 45 min"
+        },
+        {
+          "id": "check",
+          "edge": "dims-dq",
+          "title": "Run quality suite"
+        },
+        {
+          "id": "publish",
+          "edge": "dq-publish",
+          "title": "Publish passed models",
+          "condition": "no failed check",
+          "description": "Any failed check hands over to the Quarantine manager instead (see *Quality check fails*)."
+        },
+        {
+          "id": "swap",
+          "edge": "publish-msales",
+          "title": "Swap sales mart"
+        },
+        {
+          "id": "refresh",
+          "edge": "msales-bi",
+          "title": "Refresh extracts",
+          "sla": "< 25 min"
+        },
+        {
+          "id": "serve",
+          "edge": "bi-dashboards",
+          "title": "Dashboards refreshed",
+          "sla": "by 06:00 UTC"
+        }
+      ]
+    },
+    {
+      "id": "backfill",
+      "title": "Late-arriving events backfill",
+      "feature": "recovery",
+      "trigger": "Mobile clients flush events buffered offline, with event dates days in the past",
+      "outcome": "Only the late dates are rebuilt and the Product mart is corrected; dates older than 30 days are archived and never restated",
+      "steps": [
+        {
+          "id": "arrive",
+          "edge": "producers-xevents",
+          "title": "Late events arrive",
+          "payload": "{ \"event\": \"checkout_started\", \"event_time\": \"2026-10-02T18:41:07Z\", \"received_at\": \"2026-10-05T07:12:44Z\", \"user_id\": \"u_83f1\" }"
+        },
+        {
+          "id": "write",
+          "edge": "xevents-landing",
+          "title": "Write past partition"
+        },
+        {
+          "id": "detect",
+          "edge": "landing-planner",
+          "title": "Detect late partition",
+          "rules": [
+            "backfill-window"
+          ],
+          "ruleInputs": {
+            "backfill-window": {
+              "lateness": "3",
+              "share": "2.4"
+            }
+          },
+          "description": "The planner compares the partition date with the events watermark in the Run metadata store."
+        },
+        {
+          "id": "restage",
+          "edge": "planner-stage",
+          "title": "Re-stage late dates",
+          "condition": "decision = Auto backfill now",
+          "payload": "{ \"run_id\": \"bf_2026-10-05_01\", \"source\": \"events\", \"dates\": [\"2026-10-02\"], \"mode\": \"replace_partition\" }"
+        },
+        {
+          "id": "clean",
+          "edge": "stage-clean",
+          "title": "Clean late dates"
+        },
+        {
+          "id": "model",
+          "edge": "clean-dims",
+          "title": "Rebuild affected facts",
+          "description": "Only `fct_events` partitions for the late dates; dimensions untouched."
+        },
+        {
+          "id": "check",
+          "edge": "dims-dq",
+          "title": "Run quality suite"
+        },
+        {
+          "id": "publish",
+          "edge": "dq-publish",
+          "title": "Publish corrected models"
+        },
+        {
+          "id": "swap",
+          "edge": "publish-mproduct",
+          "title": "Swap product mart"
+        },
+        {
+          "id": "refresh",
+          "edge": "mproduct-bi",
+          "title": "Refresh funnel extracts"
+        },
+        {
+          "id": "serve",
+          "edge": "bi-dashboards",
+          "title": "Corrected funnels live"
+        }
+      ]
+    },
+    {
+      "id": "dq-fail",
+      "title": "Quality check fails",
+      "feature": "recovery",
+      "trigger": "One or more checks fail on `core_next` during a run",
+      "outcome": "Failing data is quarantined and the right people are told; a blocked mart keeps yesterday’s data rather than wrong data",
+      "branches": [
+        {
+          "id": "warn",
+          "label": "Warn",
+          "condition": "severity = warn"
+        },
+        {
+          "id": "block",
+          "label": "Block",
+          "condition": "severity = block, page",
+          "errorPath": true
+        }
+      ],
+      "steps": [
+        {
+          "id": "model",
+          "edge": "clean-dims",
+          "title": "Build star schema"
+        },
+        {
+          "id": "check",
+          "edge": "dims-dq",
+          "title": "Run quality suite"
+        },
+        {
+          "id": "handover",
+          "edge": "dq-qmgr",
+          "title": "Hand over failed checks",
+          "rules": [
+            "dq-severity"
+          ],
+          "ruleInputs": {
+            "dq-severity": {
+              "check": "not_null",
+              "rate": "0.4"
+            }
+          },
+          "payload": "{ \"run_id\": \"nf_2026-10-05\", \"model\": \"fct_orders\", \"check\": \"not_null(customer_id)\", \"failed_rows\": 4712, \"total_rows\": 1184320 }",
+          "description": "The worst severity across all failed checks decides the branch."
+        },
+        {
+          "id": "release",
+          "edge": "qmgr-publish",
+          "title": "Release passing rows",
+          "branch": "warn",
+          "description": "Failing rows go to the Quarantine schema (dashed); a warn notice is posted on `dq.alerts` without paging."
+        },
+        {
+          "id": "swap",
+          "edge": "publish-msales",
+          "title": "Swap sales mart",
+          "branch": "warn"
+        },
+        {
+          "id": "refresh",
+          "edge": "msales-bi",
+          "title": "Refresh extracts",
+          "branch": "warn"
+        },
+        {
+          "id": "serve",
+          "edge": "bi-dashboards",
+          "title": "Dashboards show warning",
+          "branch": "warn"
+        },
+        {
+          "id": "alert",
+          "edge": "qmgr-alerting",
+          "title": "Hold mart and alert",
+          "branch": "block",
+          "description": "The whole batch moves to the Quarantine schema and the run is marked `blocked`. `block` opens a ticket; `page` pages the data on-call. Marts keep yesterday’s data.",
+          "payload": "{ \"severity\": \"page\", \"run_id\": \"nf_2026-10-05\", \"check\": \"schema(fct_orders)\", \"runbook\": \"dq/schema-drift\" }"
+        }
+      ]
+    },
+    {
+      "id": "reverse-etl",
+      "title": "Reverse-ETL sync to CRM",
+      "feature": "activation",
+      "trigger": "Customer mart is published by the nightly run",
+      "outcome": "Changed accounts carry fresh health score, LTV and churn risk in the CRM; unchanged accounts are not sent",
+      "steps": [
+        {
+          "id": "publish",
+          "edge": "dq-publish",
+          "title": "Publish passed models"
+        },
+        {
+          "id": "swap",
+          "edge": "publish-mcustomer",
+          "title": "Swap customer mart"
+        },
+        {
+          "id": "diff",
+          "edge": "mcustomer-revetl",
+          "title": "Select changed accounts",
+          "description": "Diffs against the last synced snapshot; typically 3–8 % of accounts change per night."
+        },
+        {
+          "id": "upsert",
+          "edge": "revetl-crm",
+          "title": "Bulk upsert accounts",
+          "sla": "10k rows/min",
+          "payload": "{ \"object\": \"account\", \"external_id_field\": \"acct_id\", \"records\": [{ \"acct_id\": \"A-10293\", \"health_score\": 72, \"ltv_eur\": 18450, \"churn_risk\": \"low\" }] }"
+        },
+        {
+          "id": "result",
+          "edge": "crm-revetl",
+          "title": "Record bulk job result",
+          "description": "Rejected rows are retried once; if over 1 % still fail, the sync raises a `warn` on `dq.alerts`.",
+          "payload": "{ \"job_id\": \"bj_77120\", \"processed\": 41210, \"failed\": 18 }"
+        }
+      ]
+    }
+  ],
+  "rules": {
+    "dq-severity": {
+      "title": "Data quality severity",
+      "description": "Severity of a failed check, by check type and failure rate (% of rows failing; for `volume`, % deviation from the 7-day median row count). First matching row wins. `warn` publishes the passing rows, `block` holds the mart, `page` also wakes the on-call.",
+      "hitPolicy": "first",
+      "inputs": [
+        {
+          "id": "check",
+          "label": "Check type"
+        },
+        {
+          "id": "rate",
+          "label": "Failure rate (%)"
+        }
+      ],
+      "outputs": [
+        {
+          "id": "severity",
+          "label": "Severity"
+        },
+        {
+          "id": "action",
+          "label": "Action"
+        }
+      ],
+      "rows": [
+        {
+          "id": "schema",
+          "when": [
+            "schema",
+            "any"
+          ],
+          "then": [
+            "page",
+            "Hold all marts, page on-call"
+          ]
+        },
+        {
+          "id": "vol-big",
+          "when": [
+            "volume",
+            "> 50"
+          ],
+          "then": [
+            "page",
+            "Hold mart, page on-call"
+          ]
+        },
+        {
+          "id": "unique",
+          "when": [
+            "uniqueness",
+            "> 0"
+          ],
+          "then": [
+            "block",
+            "Quarantine batch, hold mart"
+          ]
+        },
+        {
+          "id": "fresh",
+          "when": [
+            "freshness",
+            "any"
+          ],
+          "then": [
+            "block",
+            "Hold mart, open ticket"
+          ]
+        },
+        {
+          "id": "vol",
+          "when": [
+            "volume",
+            "> 20"
+          ],
+          "then": [
+            "block",
+            "Quarantine batch, hold mart"
+          ]
+        },
+        {
+          "id": "nn-high",
+          "when": [
+            "not_null",
+            "> 1"
+          ],
+          "then": [
+            "block",
+            "Quarantine batch, hold mart"
+          ]
+        },
+        {
+          "id": "av-high",
+          "when": [
+            "accepted_values",
+            "> 5"
+          ],
+          "then": [
+            "block",
+            "Quarantine batch, hold mart"
+          ]
+        },
+        {
+          "id": "other",
+          "when": [
+            "any",
+            "any"
+          ],
+          "then": [
+            "warn",
+            "Quarantine failing rows, publish rest"
+          ]
+        }
+      ]
+    },
+    "backfill-window": {
+      "title": "Backfill window",
+      "description": "What the Backfill planner does with a partition that lands behind the events watermark, by lateness (days between event date and arrival) and share of that date’s rows arriving late. First matching row wins.",
+      "hitPolicy": "first",
+      "inputs": [
+        {
+          "id": "lateness",
+          "label": "Lateness (days)"
+        },
+        {
+          "id": "share",
+          "label": "Late share of day (%)"
+        }
+      ],
+      "outputs": [
+        {
+          "id": "decision",
+          "label": "Decision"
+        },
+        {
+          "id": "window",
+          "label": "Re-run window"
+        }
+      ],
+      "rows": [
+        {
+          "id": "same-night",
+          "when": [
+            "<= 1",
+            "any"
+          ],
+          "then": [
+            "No backfill",
+            "Next nightly run covers it"
+          ]
+        },
+        {
+          "id": "auto",
+          "when": [
+            "<= 7",
+            "any"
+          ],
+          "then": [
+            "Auto backfill now",
+            "Late dates only"
+          ]
+        },
+        {
+          "id": "small",
+          "when": [
+            "<= 30",
+            "< 5"
+          ],
+          "then": [
+            "Batch to Sunday slot",
+            "Late dates only"
+          ]
+        },
+        {
+          "id": "approve",
+          "when": [
+            "<= 30",
+            "any"
+          ],
+          "then": [
+            "Needs data owner approval",
+            "Late dates only"
+          ]
+        },
+        {
+          "id": "too-old",
+          "when": [
+            "any",
+            "any"
+          ],
+          "then": [
+            "Archive, never restate",
+            "None"
+          ]
+        }
+      ]
+    }
+  },
+  "stickies": [
+    {
+      "id": "note-lag",
+      "text": "**Caveat · replica lag.** The orders extract reads a replica. If lag exceeds 15 min at 02:00, rows updated in that gap wait for the next night.",
+      "color": "amber",
+      "position": {
+        "x": -400,
+        "y": 300
+      },
+      "size": {
+        "width": 240,
+        "height": 120
+      }
+    },
+    {
+      "id": "note-quota",
+      "text": "**Caveat · CRM quota.** Bulk upserts are capped at 10k rows/min. A large re-score (> 600k accounts) runs past 08:00 and overlaps sales hours.",
+      "color": "amber",
+      "position": {
+        "x": 3000,
+        "y": 1050
+      },
+      "size": {
+        "width": 240,
+        "height": 120
+      }
+    }
+  ]
+}

@@ -1,0 +1,176 @@
+{
+  "$schema": "https://sododeck.com/schema/v1.json",
+  "version": 1,
+  "name": "Refunds",
+  "nodes": [
+    {
+      "id": "support",
+      "type": "client",
+      "title": "Support Console",
+      "position": {
+        "x": 0,
+        "y": 0
+      }
+    },
+    {
+      "id": "refunds",
+      "type": "service",
+      "title": "Refund Service",
+      "position": {
+        "x": 300,
+        "y": 0
+      }
+    },
+    {
+      "id": "payments",
+      "type": "external",
+      "title": "Payment Provider",
+      "position": {
+        "x": 600,
+        "y": 0
+      }
+    },
+    {
+      "id": "ledger",
+      "type": "database",
+      "title": "Ledger DB",
+      "position": {
+        "x": 300,
+        "y": 200
+      }
+    }
+  ],
+  "groups": [],
+  "edges": [
+    {
+      "id": "support-refunds",
+      "from": "support",
+      "to": "refunds",
+      "protocol": "http",
+      "label": "POST /refunds"
+    },
+    {
+      "id": "refunds-payments",
+      "from": "refunds",
+      "to": "payments",
+      "protocol": "http",
+      "label": "refund charge"
+    },
+    {
+      "id": "payments-refunds",
+      "from": "payments",
+      "to": "refunds",
+      "protocol": "http",
+      "label": "refund confirmed"
+    },
+    {
+      "id": "refunds-ledger",
+      "from": "refunds",
+      "to": "ledger",
+      "protocol": "sql",
+      "label": "record refund"
+    }
+  ],
+  "views": [],
+  "features": [
+    {
+      "id": "refunds",
+      "title": "Refunds"
+    }
+  ],
+  "flows": [
+    {
+      "id": "refund",
+      "title": "Refund an order",
+      "feature": "refunds",
+      "trigger": "An agent opens a refund request",
+      "steps": [
+        {
+          "id": "request",
+          "edge": "support-refunds",
+          "title": "Request refund",
+          "rules": [
+            "refund-approval"
+          ],
+          "ruleInputs": {
+            "refund-approval": {
+              "amount": "120",
+              "age": "10"
+            }
+          }
+        },
+        {
+          "id": "refund-charge",
+          "edge": "refunds-payments",
+          "title": "Refund the charge"
+        },
+        {
+          "id": "refunded",
+          "edge": "payments-refunds",
+          "title": "Refund confirmed"
+        },
+        {
+          "id": "record",
+          "edge": "refunds-ledger",
+          "title": "Record in ledger"
+        }
+      ]
+    }
+  ],
+  "rules": {
+    "refund-approval": {
+      "title": "Refund approval",
+      "description": "Who must approve a refund, by amount and order age in days.",
+      "hitPolicy": "first",
+      "inputs": [
+        {
+          "id": "amount",
+          "label": "Amount (EUR)"
+        },
+        {
+          "id": "age",
+          "label": "Order age (days)"
+        }
+      ],
+      "outputs": [
+        {
+          "id": "approver",
+          "label": "Approver"
+        }
+      ],
+      "rows": [
+        {
+          "id": "small",
+          "when": [
+            "<= 50",
+            "<= 30"
+          ],
+          "then": [
+            "Automatic"
+          ]
+        },
+        {
+          "id": "recent",
+          "when": [
+            "<= 500",
+            "<= 30"
+          ],
+          "then": [
+            "Support lead"
+          ]
+        },
+        {
+          "id": "other",
+          "when": [
+            "any",
+            "any"
+          ],
+          "then": [
+            "Finance"
+          ]
+        }
+      ]
+    }
+  },
+  "stickies": []
+}
