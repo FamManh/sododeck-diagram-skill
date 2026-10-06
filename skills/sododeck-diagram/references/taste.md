@@ -21,13 +21,14 @@ what happens, the reader stops.
 
 ## Budgets
 
-|                     | Budget                                    | Lint code           |
-| ------------------- | ----------------------------------------- | ------------------- |
-| Cards on one screen | faithful 60 · balanced 30 · simplified 10 | `level-over-budget` |
-| Card or group title | 40 characters (1–4 words is best)         | `label-too-long`    |
-| Connector label     | 32 characters                             | `label-too-long`    |
-| Steps per flow path | 4–15 (main path plus one branch)          |                     |
-| Rows per rule       | as many cases as the code has             |                     |
+|                     | Budget                                                           | Lint code           |
+| ------------------- | ---------------------------------------------------------------- | ------------------- |
+| Cards on one screen | faithful 60 · balanced 30 · simplified 10 (only with `--detail`) | `level-over-budget` |
+| Connectors per card | 8; a shared store or bus gets only the ones a flow walks         | `hub-card`          |
+| Card or group title | 40 characters (1–4 words is best)                                | `label-too-long`    |
+| Connector label     | 32 characters                                                    | `label-too-long`    |
+| Steps per flow path | 4–15 (main path plus one branch)                                 |                     |
+| Rows per rule       | as many cases as the code has                                    |                     |
 
 Over the card budget? First merge minor cards; then group harder; only then push a part a level
 down.

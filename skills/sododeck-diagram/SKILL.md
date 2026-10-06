@@ -68,21 +68,23 @@ and read only the files you name. `references/scripts.md` lists every option and
 
 ## Modes
 
-| The user wants…                         | Mode             | Read                                                                                 |
-| --------------------------------------- | ---------------- | ------------------------------------------------------------------------------------ |
-| a deck from a description (the default) | `new`            | `references/modeling.md`, `references/flows.md`; `rules.md` for a decision or policy |
-| a deck of a code repository             | `codebase`       | `references/from-codebase.md` (it sends you to the others)                           |
-| to change an existing deck              | `update`         | run `summary.mjs` first, then the reference for what they ask about                  |
-| a deck from Mermaid, C4 text or OpenAPI | `text`           | `references/from-text-formats.md`                                                    |
-| database tables and relationships       | `new` / `update` | `references/database.md`                                                             |
+| The user wants…                                                 | Mode             | Read                                                                                             |
+| --------------------------------------------------------------- | ---------------- | ------------------------------------------------------------------------------------------------ |
+| a deck from a description (the default)                         | `new`            | `references/modeling.md`, `references/flows.md`; `rules.md` for a decision or policy             |
+| a deck of a code repository                                     | `codebase`       | `references/from-codebase.md` (it sends you to the others)                                       |
+| to change an existing deck                                      | `update`         | run `summary.mjs` first, then the reference for what they ask about                              |
+| a deck from Mermaid, C4 text or OpenAPI                         | `text`           | `references/from-text-formats.md`                                                                |
+| a deck from a whiteboard file, screenshot or photo of a diagram | `text`           | `references/from-diagrams.md` (run `outline.mjs` on `.excalidraw` files instead of reading them) |
+| database tables and relationships                               | `new` / `update` | `references/database.md`                                                                         |
 
 Always also read `references/layout.md` (placing cards) and, once per new deck,
 `references/taste.md`. Pass the mode to lint (`--mode update`, `--mode codebase`).
 
 ## Dials
 
-- **Detail** (`--detail` for lint): `faithful` (at most 60 cards on one screen), `balanced` (30,
-  the default), `simplified` (10). A code walkthrough is `faithful`; a slide is `simplified`.
+- **Detail**: by default, draw the system at the detail it really has and pass no `--detail`.
+  When the user asks for less, pass `--detail` to lint and it checks the cards on one screen:
+  `faithful` (at most 60), `balanced` (30), `simplified` (10, an overview or a slide).
 - **Audience**: `engineer` (default: protocols, tech, payloads, source links), `mixed` (plain
   titles, short descriptions), `executive` (outcomes and owners, no protocols). The audience
   changes wording and fields, never the structure rules.
@@ -97,6 +99,13 @@ Always also read `references/layout.md` (placing cards) and, once per new deck,
 - **Branches fork only at the end** of a flow's main path. An early exit ("unmatched → skipped")
   goes in a step `description` or a rule, or becomes its own flow.
 - **Every card and note has a position**, on the grid from `layout.md`.
+
+## New deck or update?
+
+When the user gives a source to draw (a description, a code map, a whiteboard, a repository),
+draw a **new** deck into a new file, even if an older deck or a generator script sits next to it:
+the older one was drawn under older rules and is what they want replaced. Use update mode only
+when they name an existing deck and ask to change it.
 
 ## Update mode
 

@@ -1,0 +1,424 @@
+{
+  "$schema": "https://sododeck.com/schema/v1.json",
+  "version": 1,
+  "name": "Order platform",
+  "description": "Three features share one set of services. Open a feature view to see only its part; play a flow to walk it.",
+  "nodes": [
+    {
+      "id": "web",
+      "type": "client",
+      "title": "Web Shop",
+      "tech": "React",
+      "position": {
+        "x": 0,
+        "y": 0
+      }
+    },
+    {
+      "id": "support",
+      "type": "client",
+      "title": "Support Console",
+      "position": {
+        "x": 0,
+        "y": 250
+      }
+    },
+    {
+      "id": "gateway",
+      "type": "gateway",
+      "title": "API Gateway",
+      "position": {
+        "x": 300,
+        "y": 125
+      }
+    },
+    {
+      "id": "orders",
+      "type": "service",
+      "title": "Order Service",
+      "group": "core",
+      "tech": "Node.js",
+      "description": "Creates orders, asks Pricing for the total, charges and refunds through the payment provider, and publishes order events.",
+      "position": {
+        "x": 650,
+        "y": 125
+      }
+    },
+    {
+      "id": "pricing",
+      "type": "component",
+      "title": "Pricing",
+      "group": "core",
+      "description": "Prices an order: list price, then discounts, then tax, in that order.",
+      "position": {
+        "x": 650,
+        "y": -125
+      }
+    },
+    {
+      "id": "orders-db",
+      "type": "database",
+      "title": "Orders DB",
+      "group": "data",
+      "tech": "Postgres",
+      "position": {
+        "x": 650,
+        "y": 375
+      }
+    },
+    {
+      "id": "warehouse",
+      "type": "service",
+      "title": "Warehouse Service",
+      "position": {
+        "x": 1000,
+        "y": 375
+      }
+    },
+    {
+      "id": "notify",
+      "type": "service",
+      "title": "Notification Service",
+      "position": {
+        "x": 1350,
+        "y": 125
+      }
+    },
+    {
+      "id": "payments",
+      "type": "external",
+      "title": "Payment Provider",
+      "position": {
+        "x": 1000,
+        "y": -125
+      }
+    },
+    {
+      "id": "email",
+      "type": "external",
+      "title": "Email Provider",
+      "position": {
+        "x": 1700,
+        "y": 125
+      }
+    }
+  ],
+  "groups": [
+    {
+      "id": "core",
+      "title": "Order core"
+    },
+    {
+      "id": "data",
+      "title": "Data"
+    }
+  ],
+  "edges": [
+    {
+      "id": "web-gateway",
+      "from": "web",
+      "to": "gateway",
+      "protocol": "http",
+      "label": "POST /checkout"
+    },
+    {
+      "id": "support-gateway",
+      "from": "support",
+      "to": "gateway",
+      "protocol": "http",
+      "label": "POST /refunds"
+    },
+    {
+      "id": "gateway-orders",
+      "from": "gateway",
+      "to": "orders",
+      "protocol": "http",
+      "label": "create · refund"
+    },
+    {
+      "id": "orders-pricing",
+      "from": "orders",
+      "to": "pricing",
+      "protocol": "other",
+      "label": "price order"
+    },
+    {
+      "id": "pricing-orders",
+      "from": "pricing",
+      "to": "orders",
+      "protocol": "other",
+      "label": "total"
+    },
+    {
+      "id": "orders-db-write",
+      "from": "orders",
+      "to": "orders-db",
+      "protocol": "sql",
+      "label": "save order",
+      "style": {
+        "dash": "dashed",
+        "width": 1.5
+      }
+    },
+    {
+      "id": "orders-payments",
+      "from": "orders",
+      "to": "payments",
+      "protocol": "http",
+      "label": "charge · refund"
+    },
+    {
+      "id": "payments-orders",
+      "from": "payments",
+      "to": "orders",
+      "protocol": "http",
+      "label": "payment result"
+    },
+    {
+      "id": "orders-notify",
+      "from": "orders",
+      "to": "notify",
+      "protocol": "event",
+      "label": "OrderPaid · Refunded · Kafka"
+    },
+    {
+      "id": "orders-warehouse",
+      "from": "orders",
+      "to": "warehouse",
+      "protocol": "event",
+      "label": "OrderPaid · Kafka"
+    },
+    {
+      "id": "warehouse-notify",
+      "from": "warehouse",
+      "to": "notify",
+      "protocol": "event",
+      "label": "OrderShipped · Kafka"
+    },
+    {
+      "id": "notify-email",
+      "from": "notify",
+      "to": "email",
+      "protocol": "http",
+      "label": "send email"
+    }
+  ],
+  "views": [
+    {
+      "id": "overview",
+      "type": "system",
+      "title": "Overview"
+    },
+    {
+      "id": "view-checkout",
+      "type": "feature",
+      "title": "Checkout",
+      "feature": "checkout"
+    },
+    {
+      "id": "view-refunds",
+      "type": "feature",
+      "title": "Refunds",
+      "feature": "refunds"
+    },
+    {
+      "id": "view-fulfilment",
+      "type": "feature",
+      "title": "Fulfilment",
+      "feature": "fulfilment"
+    }
+  ],
+  "features": [
+    {
+      "id": "checkout",
+      "title": "Checkout"
+    },
+    {
+      "id": "refunds",
+      "title": "Refunds"
+    },
+    {
+      "id": "fulfilment",
+      "title": "Fulfilment"
+    }
+  ],
+  "flows": [
+    {
+      "id": "checkout",
+      "title": "Checkout",
+      "feature": "checkout",
+      "trigger": "Customer presses Pay",
+      "outcome": "Order paid, confirmation sent",
+      "steps": [
+        {
+          "id": "c-submit",
+          "edge": "web-gateway",
+          "title": "Submit cart"
+        },
+        {
+          "id": "c-create",
+          "edge": "gateway-orders",
+          "title": "Create order",
+          "notes": "Saves the order as pending (orders-db) before pricing."
+        },
+        {
+          "id": "c-price",
+          "edge": "orders-pricing",
+          "title": "Price order"
+        },
+        {
+          "id": "c-total",
+          "edge": "pricing-orders",
+          "title": "Return total"
+        },
+        {
+          "id": "c-charge",
+          "edge": "orders-payments",
+          "title": "Charge card",
+          "payload": "{ \"orderId\": \"o_123\", \"amount\": 4990, \"currency\": \"EUR\" }"
+        },
+        {
+          "id": "c-paid",
+          "edge": "payments-orders",
+          "title": "Card charged"
+        },
+        {
+          "id": "c-publish",
+          "edge": "orders-notify",
+          "title": "Publish OrderPaid"
+        },
+        {
+          "id": "c-email",
+          "edge": "notify-email",
+          "title": "Send confirmation"
+        }
+      ]
+    },
+    {
+      "id": "refund",
+      "title": "Refund",
+      "feature": "refunds",
+      "trigger": "An agent opens a refund",
+      "steps": [
+        {
+          "id": "r-request",
+          "edge": "support-gateway",
+          "title": "Request refund",
+          "rules": [
+            "refund-approval"
+          ],
+          "ruleInputs": {
+            "refund-approval": {
+              "amount": "120",
+              "age": "10"
+            }
+          }
+        },
+        {
+          "id": "r-forward",
+          "edge": "gateway-orders",
+          "title": "Forward refund"
+        },
+        {
+          "id": "r-refund",
+          "edge": "orders-payments",
+          "title": "Refund the charge"
+        },
+        {
+          "id": "r-done",
+          "edge": "payments-orders",
+          "title": "Refund confirmed"
+        },
+        {
+          "id": "r-publish",
+          "edge": "orders-notify",
+          "title": "Publish Refunded"
+        },
+        {
+          "id": "r-email",
+          "edge": "notify-email",
+          "title": "Tell the customer"
+        }
+      ]
+    },
+    {
+      "id": "ship",
+      "title": "Ship an order",
+      "feature": "fulfilment",
+      "trigger": "OrderPaid is published",
+      "steps": [
+        {
+          "id": "s-paid",
+          "edge": "orders-warehouse",
+          "title": "Publish OrderPaid"
+        },
+        {
+          "id": "s-shipped",
+          "edge": "warehouse-notify",
+          "title": "Publish OrderShipped"
+        },
+        {
+          "id": "s-email",
+          "edge": "notify-email",
+          "title": "Send tracking link"
+        }
+      ]
+    }
+  ],
+  "rules": {
+    "refund-approval": {
+      "title": "Refund approval",
+      "description": "Who approves a refund, by amount and order age in days.",
+      "hitPolicy": "first",
+      "inputs": [
+        {
+          "id": "amount",
+          "label": "Amount (EUR)"
+        },
+        {
+          "id": "age",
+          "label": "Order age (days)"
+        }
+      ],
+      "outputs": [
+        {
+          "id": "approver",
+          "label": "Approver"
+        }
+      ],
+      "rows": [
+        {
+          "id": "small",
+          "when": [
+            "<= 50",
+            "<= 30"
+          ],
+          "then": [
+            "Automatic"
+          ]
+        },
+        {
+          "id": "recent",
+          "when": [
+            "<= 500",
+            "<= 30"
+          ],
+          "then": [
+            "Support lead"
+          ]
+        },
+        {
+          "id": "other",
+          "when": [
+            "any",
+            "any"
+          ],
+          "then": [
+            "Finance"
+          ]
+        }
+      ]
+    }
+  },
+  "stickies": []
+}

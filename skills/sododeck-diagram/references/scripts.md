@@ -8,8 +8,8 @@ cannot be loaded · `2` wrong arguments or a file that cannot be read (message o
 
 ## Contents
 
-1. validate · 2. lint · 3. summary · 4. diff · 5. deliver · 6. Reading a problem · 7. Problem
-   codes
+1. validate · 2. lint · 3. summary · 4. diff · 5. deliver · 6. outline · 7. Reading a problem ·
+2. Problem codes
 
 ## 1. validate
 
@@ -41,7 +41,16 @@ deck instead of reading the whole file.
 error, replaces the target with the draft in one step and deletes the draft (the report prints
 only when there are warnings). Otherwise both files stay as they are and the report prints.
 
-## 6. Reading a problem
+## 6. outline
+
+`outline.mjs <board.excalidraw> [--board "title"] [--min-text 13] [--format text|json]`: what a
+whiteboard file holds, without reading its JSON: the boards (large one-line titles over a
+diagram), every labelled shape (labels bound to a shape or written on top of it), every arrow as
+`from → to "label"` (`end guessed` when the arrow was not attached and the nearest shape within
+40 px was taken), and the free text by size. `--board` keeps one board (title match, any case).
+See `from-diagrams.md`.
+
+## 7. Reading a problem
 
 ```json
 {
@@ -60,7 +69,7 @@ problem points at the exact key, such as `/nodes/3/title`); `subject` is the id 
 `line` and `column` instead of `path`. The same report comes out of Sododeck's **Copy problems**,
 so a user can paste the app's problems to you and you fix them the same way.
 
-## 7. Problem codes
+## 8. Problem codes
 
 Errors make the app refuse a file or mark a deck problem; warnings are advice. Format and identity
 codes (`schema-*`, `invalid-json`, `duplicate-id`, …) come from validate.
@@ -110,7 +119,8 @@ codes (`schema-*`, `invalid-json`, `duplicate-id`, …) come from validate.
 | `label-too-long` | warning | Label over budget | Shorten the label; put details in the note or in fields. |
 | `level-over-budget` | warning | Too many cards on one level | Split the level: move related cards under a parent card one level down, or merge minor ones. |
 | `connector-without-source` | warning | No source link | Add a link to the file and lines the connector or card was built from, or remove it. |
-| `card-without-position` | warning | Card without a position | Place the card on the layout grid (see references/layout.md); the skill lays decks out by hand, the app does not. |
+| `card-without-position` | warning | Card without a position | Place the card on the layout grid (see references/layout.md); a hand-laid deck reads far better than the app's import layout. |
 | `connector-crosses-card` | warning | Connector runs over a card | Move the card off the line, move an end so the line between the two card centres misses it, or add a bend (`route.waypoints`). |
 | `frame-covers-card` | warning | Group frame covers a card of another group | Move the card out of the frame, or move the group's cards so their frame no longer reaches it. |
 | `frames-overlap` | warning | Two group frames overlap | Move one group so the frames have a gap; sibling groups never share space. |
+| `hub-card` | warning | Too many connectors | Keep only the connectors a flow walks or that tell the story; name the other readers and writers in the description. |

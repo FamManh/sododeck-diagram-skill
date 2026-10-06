@@ -107,6 +107,16 @@ An exit **in the middle** ("no match → mark skipped, stop") cannot be a branch
 step's `description` and in a rule on that step (the rule's rows list every outcome), or give it
 its own short flow.
 
+## Things a single chain can't say
+
+- **Two things at once** (a worker emits a per-item event and, after the batch, a summary event):
+  keep the main story as the flow; give the second effect its own short flow that starts at the
+  card where it forks, in the same feature, and say so in both flows' `description`.
+- **A path that ends nowhere** (a guard stops, a flag drops the message, retries run out): there
+  is no connector to walk, so it is not a step. Put it in the rule that decides it (an output such
+  as "stop: flag off") and in the step's `condition`. If it does end somewhere real (a dead-letter
+  table, a FAILED status the UI shows), draw that card and make it a branch.
+
 ## Writing good steps
 
 - Titles are what happens, 2–5 words: "Enqueue UPDATE", "Publish delete", "Apply reply".

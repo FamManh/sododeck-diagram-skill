@@ -119,7 +119,7 @@ moved or saved in Sododeck stays attached, and `diff.mjs` shows exactly what cha
 | -------- | -------------------------------------------------------------------------- |
 | Detail   | `faithful` (up to 60 cards on a screen), `balanced` (30), `simplified` (10) |
 | Audience | `engineer` (protocols, payloads, source links), `mixed`, `executive`       |
-| Mode     | `new`, `update`, `codebase`, `text` (Mermaid, C4, OpenAPI), database       |
+| Mode     | `new`, `update`, `codebase`, `text` (Mermaid, C4, OpenAPI, whiteboard files and screenshots), database |
 
 ---
 
@@ -129,10 +129,10 @@ moved or saved in Sododeck stays attached, and `diff.mjs` shows exactly what cha
 skills/sododeck-diagram/
   SKILL.md              the router the agent reads first
   references/           one guide per task: layout, modeling, flows, rules,
-                        from-codebase, from-text-formats, database, taste, scripts
-  scripts/              validate · lint · deliver · diff · summary (Node 20+, offline)
+                        from-codebase, from-text-formats, from-diagrams, database, taste, scripts
+  scripts/              validate · lint · deliver · diff · summary · outline (Node 20+, offline)
   schema/v1.json        the .sododeck file format
-  examples/             three small reference decks
+  examples/             small reference decks
 ```
 
 The scripts are Sododeck's own model code, bundled into one file, so the skill and the app never
